@@ -1,6 +1,7 @@
 // Helpful resource for testing: https://cryptii.com/pipes/base64-to-hex
 // Resource for bit fiddling: http://www.coranac.com/documents/working-with-bits-and-bitfields/
 use std::collections::HashMap;
+use std::str;
 
 fn hex_to_nibbles(input: &str) -> Vec<u8> {
     // Can also be done with some ascii shifting described in
@@ -118,6 +119,8 @@ fn byte_triple_to_6bit(bytes: (u8, u8, u8)) -> (u8, u8, u8, u8) {
 fn hex_to_base64(input: &str) -> String {
     let nibs = hex_to_nibbles(input);
     let bytes = nibs_to_bytes(&nibs);
+    // There be easter egg here:
+    // println!("{:?}", str::from_utf8(&bytes).unwrap());
     let res = bytes_to_base64(&bytes);
     res
 }
@@ -132,6 +135,71 @@ fn xor(left_hex: &str, right_hex: &str) -> String {
         .collect();
 
     nibs_to_hex(&xored)
+}
+
+fn decrypt_bytes_with_byte(bytes: &[u8], s: u8) -> Vec<u8> {
+    bytes.iter().map(|byte| byte ^ s).collect()
+}
+
+
+fn decrypt_single_byte_xor(input: &str) -> String {
+    let nibs = hex_to_nibbles(input);
+    let bytes = nibs_to_bytes(&nibs);
+
+    // Decrypt using only ascii A-Za-z
+    let raw_plaintexts = (65..123u8) // ASCII letters
+        .map(|char_int| decrypt_bytes_with_byte(&bytes, char_int))
+        .collect::<Vec<_>>();
+
+    // Filter down list into just ones with ascii characters
+    let ascii_plaintexts = raw_plaintexts.iter()
+        .filter(|bytes| {
+            bytes.iter().all(|byte| byte >= &32 && byte < &126)
+        }).collect::<Vec<_>>();
+
+
+    let best_score_with_plaintext = ascii_plaintexts.iter().map(|plaintext| {
+        let frequency = text_frequency(&plaintext);
+        let score = frequency_score(&frequency);
+        (score, plaintext)
+    }).max_by_key(|x| x.0);
+
+
+    let plaintext = best_score_with_plaintext
+        .map(|x| x.1)
+        .and_then(|bytes| str::from_utf8(&bytes).ok())
+        .unwrap();
+
+    plaintext.to_string()
+}
+
+
+fn text_frequency(plaintext: &[u8]) -> HashMap<char, usize> {
+    let mut score = HashMap::new();
+    for c in plaintext {
+        let counter = score.entry((*c as char).to_lowercase().next().unwrap()).or_insert(0);
+        *counter += 1;
+    }
+    score
+}
+
+// Simple summing of the most common letters in english. Frequency has everything stored in
+// lowercase so we don't need to to uppercase.
+fn frequency_score(frequency: &HashMap<char, usize>) -> usize {
+    // ETAOIN SHRDLU
+    frequency.get(&'e').unwrap_or(&0) +
+        frequency.get(&'t').unwrap_or(&0) +
+        frequency.get(&'a').unwrap_or(&0) +
+        frequency.get(&'o').unwrap_or(&0) +
+        frequency.get(&'i').unwrap_or(&0) +
+        frequency.get(&'n').unwrap_or(&0) +
+        frequency.get(&' ').unwrap_or(&0) +
+        frequency.get(&'s').unwrap_or(&0) +
+        frequency.get(&'h').unwrap_or(&0) +
+        frequency.get(&'r').unwrap_or(&0) +
+        frequency.get(&'d').unwrap_or(&0) +
+        frequency.get(&'l').unwrap_or(&0) +
+        frequency.get(&'u').unwrap_or(&0)
 }
 
 #[cfg(test)]
@@ -205,5 +273,41 @@ mod tests {
         let result = set1::xor(&left, &right);
 
         assert_eq!(result, "746865206b696420646f6e277420706c6179");
+    }
+
+    #[test]
+    fn decrypt_single_byte_xor() {
+        // Decrypt hex encoded string xor'd with single character
+        // https://cryptopals.com/sets/1/challenges/3
+        let ciphertext = "1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736";
+
+        let result = set1::decrypt_single_byte_xor(&ciphertext);
+
+        assert_eq!(result, "Cooking MC's like a pound of bacon");
+    }
+
+    #[test]
+    fn text_frequency() {
+        let plaintext = "ab ab abc deb";
+
+        let frequency = set1::text_frequency(plaintext.as_bytes());
+
+        assert_eq!(frequency.get(&'a'), Some(&3usize));
+        assert_eq!(frequency.get(&'b'), Some(&4usize));
+        assert_eq!(frequency.get(&'c'), Some(&1usize));
+        assert_eq!(frequency.get(&'d'), Some(&1usize));
+        assert_eq!(frequency.get(&'e'), Some(&1usize));
+        assert_eq!(frequency.get(&' '), Some(&3usize));
+        assert_eq!(frequency.get(&'z'), None);
+    }
+
+    #[test]
+    fn frequency_score() {
+        let plaintext = "ab ab abc deb";
+
+        let frequency = set1::text_frequency(plaintext.as_bytes());
+        let score = set1::frequency_score(&frequency);
+
+        assert_eq!(score, 8);
     }
 }
