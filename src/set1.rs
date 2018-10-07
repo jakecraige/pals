@@ -59,7 +59,7 @@ fn bytes_to_base64(bytes: &[u8]) -> String {
             // displayed as `AA` and `A` instead of `==` and `=`.
             2 => grouped.push((chunk[0], chunk[1], 0)),
             1 => grouped.push((chunk[0], 0, 0)),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -82,7 +82,7 @@ fn bytes_to_base64(bytes: &[u8]) -> String {
             52...61 => result.push((val - 4) as char),
             62 => result.push('+'),
             63 => result.push('/'),
-            _ => unreachable!() // should be 6 bit, this should not be reachable
+            _ => unreachable!(), // should be 6 bit, this should not be reachable
         }
     }
     result
@@ -94,7 +94,7 @@ fn nibs_to_hex(nibbles: &[u8]) -> String {
         match nib {
             0...9 => hex.push((nib + 48) as char),
             10...15 => hex.push((nib + 87) as char),
-            _ => unreachable!() // should be 4 bit, this should not be reachable
+            _ => unreachable!(), // should be 4 bit, this should not be reachable
         }
     }
     hex
@@ -129,7 +129,8 @@ fn xor(left_hex: &str, right_hex: &str) -> String {
     let left_nibs = hex_to_nibbles(left_hex);
     let right_nibs = hex_to_nibbles(right_hex);
 
-    let xored: Vec<u8> = left_nibs.iter()
+    let xored: Vec<u8> = left_nibs
+        .iter()
         .zip(right_nibs.iter())
         .map(|(left, right)| left ^ right)
         .collect();
@@ -170,18 +171,20 @@ fn decrypt_single_byte_xor(input: &str) -> String {
 }
 
 fn detect_single_byte_xor(inputs: Vec<&str>) -> Option<String> {
-    inputs.iter()
+    inputs
+        .iter()
         .filter_map(|input| decrypt_single_byte_xor_with_score(input))
         .max_by_key(|x| x.0)
         .map(|x| x.1)
         .and_then(|b| String::from_utf8(b).ok())
 }
 
-
 fn text_frequency(plaintext: &[u8]) -> HashMap<char, usize> {
     let mut score = HashMap::new();
     for c in plaintext {
-        let counter = score.entry((*c as char).to_lowercase().next().unwrap()).or_insert(0);
+        let counter = score
+            .entry((*c as char).to_lowercase().next().unwrap())
+            .or_insert(0);
         *counter += 1;
     }
     score
@@ -191,19 +194,40 @@ fn text_frequency(plaintext: &[u8]) -> HashMap<char, usize> {
 // lowercase so we don't need to to uppercase.
 fn frequency_score(frequency: &HashMap<char, usize>) -> usize {
     // ETAOIN SHRDLU
-    frequency.get(&'e').unwrap_or(&0) +
-        frequency.get(&'t').unwrap_or(&0) +
-        frequency.get(&'a').unwrap_or(&0) +
-        frequency.get(&'o').unwrap_or(&0) +
-        frequency.get(&'i').unwrap_or(&0) +
-        frequency.get(&'n').unwrap_or(&0) +
-        frequency.get(&' ').unwrap_or(&0) +
-        frequency.get(&'s').unwrap_or(&0) +
-        frequency.get(&'h').unwrap_or(&0) +
-        frequency.get(&'r').unwrap_or(&0) +
-        frequency.get(&'d').unwrap_or(&0) +
-        frequency.get(&'l').unwrap_or(&0) +
-        frequency.get(&'u').unwrap_or(&0)
+    frequency.get(&'e').unwrap_or(&0)
+        + frequency.get(&'t').unwrap_or(&0)
+        + frequency.get(&'a').unwrap_or(&0)
+        + frequency.get(&'o').unwrap_or(&0)
+        + frequency.get(&'i').unwrap_or(&0)
+        + frequency.get(&'n').unwrap_or(&0)
+        + frequency.get(&' ').unwrap_or(&0)
+        + frequency.get(&'s').unwrap_or(&0)
+        + frequency.get(&'h').unwrap_or(&0)
+        + frequency.get(&'r').unwrap_or(&0)
+        + frequency.get(&'d').unwrap_or(&0)
+        + frequency.get(&'l').unwrap_or(&0)
+        + frequency.get(&'u').unwrap_or(&0)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut s = String::new();
+    for byte in bytes {
+        // If I want to actually implement hex encoding, turn bytes into nibbles, then map them to
+        // the expected values.
+        s.push_str(&format!("{:02x}", byte));
+    }
+    s
+}
+
+fn xor_encrypt_with_key(plaintext: &str, key: &str) -> String {
+    let encrypted = plaintext
+        .as_bytes()
+        .iter()
+        .zip(key.as_bytes().iter().cycle())
+        .map(|(p, s)| p ^ s)
+        .collect::<Vec<u8>>();
+
+    hex_encode(&encrypted)
 }
 
 #[cfg(test)]
@@ -321,11 +345,26 @@ mod tests {
     fn detect_single_byte_xor() {
         let mut f = File::open("src/data/challenge4.txt").expect("file not found");
         let mut contents = String::new();
-        f.read_to_string(&mut contents).expect("something went wrong reading the file");
+        f.read_to_string(&mut contents)
+            .expect("something went wrong reading the file");
         let input: Vec<&str> = contents.split("\n").collect();
 
         let result = set1::detect_single_byte_xor(input);
 
         assert_eq!(result, Some("Now that the party is jumping\n".to_string()));
+    }
+
+    #[test]
+    fn xor_encrypt_with_key() {
+        let plaintext =
+            "Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal";
+        let key = "ICE";
+
+        let ciphertext = set1::xor_encrypt_with_key(&plaintext, &key);
+
+        assert_eq!(
+            ciphertext,
+            "0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f"
+        );
     }
 }

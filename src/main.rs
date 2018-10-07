@@ -2,5 +2,4 @@
 
 mod set1;
 
-fn main() {
-}
+fn main() {}
