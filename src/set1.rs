@@ -141,36 +141,40 @@ fn decrypt_bytes_with_byte(bytes: &[u8], s: u8) -> Vec<u8> {
     bytes.iter().map(|byte| byte ^ s).collect()
 }
 
-
-fn decrypt_single_byte_xor(input: &str) -> String {
+fn decrypt_single_byte_xor_with_score(input: &str) -> Option<(usize, Vec<u8>)> {
     let nibs = hex_to_nibbles(input);
     let bytes = nibs_to_bytes(&nibs);
 
-    // Decrypt using only ascii A-Za-z
-    let raw_plaintexts = (65..123u8) // ASCII letters
+    let ascii_plaintexts_with_scores = (48..123u8) // ASCII letters
+        // Decrypt using only ascii A-Za-z
         .map(|char_int| decrypt_bytes_with_byte(&bytes, char_int))
-        .collect::<Vec<_>>();
+        // Filter to things that only include ascii chars
+        .filter(|bytes| bytes.iter().all(|byte| byte >= &0 && byte < &126))
+        // Calculate frequency and score
+        .map(|plaintext| {
+            let frequency = text_frequency(&plaintext);
+            let score = frequency_score(&frequency);
+            (score, plaintext)
+        });
 
-    // Filter down list into just ones with ascii characters
-    let ascii_plaintexts = raw_plaintexts.iter()
-        .filter(|bytes| {
-            bytes.iter().all(|byte| byte >= &32 && byte < &126)
-        }).collect::<Vec<_>>();
+    // Return the one with the highest score
+    ascii_plaintexts_with_scores.max_by_key(|x| x.0)
+}
 
+fn decrypt_single_byte_xor(input: &str) -> String {
+    let decrypted_with_score = decrypt_single_byte_xor_with_score(input);
+    let bytes = decrypted_with_score.map(|(_, bytes)| bytes);
+    let plaintext = bytes.and_then(|b| String::from_utf8(b).ok());
 
-    let best_score_with_plaintext = ascii_plaintexts.iter().map(|plaintext| {
-        let frequency = text_frequency(&plaintext);
-        let score = frequency_score(&frequency);
-        (score, plaintext)
-    }).max_by_key(|x| x.0);
+    plaintext.unwrap() // YOLO
+}
 
-
-    let plaintext = best_score_with_plaintext
+fn detect_single_byte_xor(inputs: Vec<&str>) -> Option<String> {
+    inputs.iter()
+        .filter_map(|input| decrypt_single_byte_xor_with_score(input))
+        .max_by_key(|x| x.0)
         .map(|x| x.1)
-        .and_then(|bytes| str::from_utf8(&bytes).ok())
-        .unwrap();
-
-    plaintext.to_string()
+        .and_then(|b| String::from_utf8(b).ok())
 }
 
 
@@ -205,6 +209,8 @@ fn frequency_score(frequency: &HashMap<char, usize>) -> usize {
 #[cfg(test)]
 mod tests {
     use set1;
+    use std::fs::File;
+    use std::io::Read;
 
     #[test]
     fn hex_to_nibbles() {
@@ -309,5 +315,17 @@ mod tests {
         let score = set1::frequency_score(&frequency);
 
         assert_eq!(score, 8);
+    }
+
+    #[test]
+    fn detect_single_byte_xor() {
+        let mut f = File::open("src/data/challenge4.txt").expect("file not found");
+        let mut contents = String::new();
+        f.read_to_string(&mut contents).expect("something went wrong reading the file");
+        let input: Vec<&str> = contents.split("\n").collect();
+
+        let result = set1::detect_single_byte_xor(input);
+
+        assert_eq!(result, Some("Now that the party is jumping\n".to_string()));
     }
 }
