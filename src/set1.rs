@@ -1,0 +1,174 @@
+// Helpful resource for testing: https://cryptii.com/pipes/base64-to-hex
+// Resource for bit fiddling: http://www.coranac.com/documents/working-with-bits-and-bitfields/
+use std::collections::HashMap;
+
+fn hex_to_nibbles(input: &str) -> Vec<u8> {
+    // Can also be done with some ascii shifting described in
+    // https://nachtimwald.com/2017/09/24/hex-encode-and-decode-in-c/
+    let mut mapping: HashMap<char, u8> = HashMap::new();
+    mapping.insert('0', 0);
+    mapping.insert('1', 1);
+    mapping.insert('2', 2);
+    mapping.insert('3', 3);
+    mapping.insert('4', 4);
+    mapping.insert('5', 5);
+    mapping.insert('6', 6);
+    mapping.insert('7', 7);
+    mapping.insert('8', 8);
+    mapping.insert('9', 9);
+    mapping.insert('a', 10);
+    mapping.insert('b', 11);
+    mapping.insert('c', 12);
+    mapping.insert('d', 13);
+    mapping.insert('e', 14);
+    mapping.insert('f', 15);
+
+    input.chars().map(|c| *mapping.get(&c).unwrap()).collect()
+}
+
+fn nibs_to_byte(left: u8, right: u8) -> u8 {
+    // add in the left half, shift it left, then add in the right
+    ((0 ^ left) << 4) ^ right
+}
+
+fn nibs_to_bytes(nibs: &[u8]) -> Vec<u8> {
+    let mut out: Vec<u8> = vec![];
+    for nibs in nibs.chunks(2) {
+        out.push(nibs_to_byte(nibs[0], nibs[1]));
+    }
+    out
+}
+
+// The encoding process represents 24-bit groups of input bits as output
+// strings of 4 encoded characters.  Proceeding from left to right, a
+// 24-bit input group is formed by concatenating 3 8-bit input groups.
+// These 24 bits are then treated as 4 concatenated 6-bit groups, each
+// of which is translated into a single digit in the base 64 alphabet.
+
+// Each 6-bit group is used as an index into an array of 64 printable
+// characters.  The character referenced by the index is placed in the
+// output string.
+fn bytes_to_base64(bytes: &[u8]) -> String {
+    // create 24 bit groups
+    let mut grouped: Vec<(u8, u8, u8)> = vec![];
+    for chunk in bytes.chunks(3) {
+        match chunk.len() {
+            3 => grouped.push((chunk[0], chunk[1], chunk[2])),
+            // NOTE: This is not the right way to handle padding. It'll lead to the padding
+            // displayed as `AA` and `A` instead of `==` and `=`.
+            2 => grouped.push((chunk[0], chunk[1], 0)),
+            1 => grouped.push((chunk[0], 0, 0)),
+            _ => unreachable!()
+        }
+    }
+
+    // split into 6-bit groups
+    let mut bit6vec: Vec<u8> = vec![];
+    for byte_triple in grouped {
+        let (b1, b2, b3, b4) = byte_triple_to_6bit(byte_triple);
+        bit6vec.push(b1);
+        bit6vec.push(b2);
+        bit6vec.push(b3);
+        bit6vec.push(b4);
+    }
+
+    // map 6-bit u8s to char
+    let mut result = String::new();
+    for val in bit6vec {
+        match val {
+            0...25 => result.push((val + 65) as char),
+            26...51 => result.push((val + 71) as char),
+            52...61 => result.push((val - 4) as char),
+            62 => result.push('+'),
+            63 => result.push('/'),
+            _ => unreachable!() // should be 6 bit, this isn't reachable there
+        }
+    }
+    result
+}
+
+// Convert 3 bytes into 4 6-bit u8s
+fn byte_triple_to_6bit(bytes: (u8, u8, u8)) -> (u8, u8, u8, u8) {
+    let (b1, b2, b3) = bytes;
+
+    // First 6 of b1
+    let p1 = b1 >> 2;
+    // Last 2 of b1, zero left 2, add in first 4 of b3
+    let p2 = ((b1 << 4) & 0b00111111u8) ^ (b2 >> 4);
+    // Zero left 4 bits, then last 4 of b2, first 2 of b3
+    let p3 = ((b2 & 0b00001111u8) << 2) ^ (b3 >> 6);
+    // Last 6 of b3
+    let p4 = b3 & 0b00111111u8;
+
+    (p1, p2, p3, p4)
+}
+
+fn hex_to_base64(input: &str) -> String {
+    let nibs = hex_to_nibbles(input);
+    let bytes = nibs_to_bytes(&nibs);
+    let res = bytes_to_base64(&bytes);
+    res
+}
+
+#[cfg(test)]
+mod tests {
+    use set1;
+
+    #[test]
+    fn hex_to_nibbles() {
+        let input = "0f";
+        let output = set1::hex_to_nibbles(&input);
+
+        assert_eq!(output, &[0b0000, 0b1111])
+    }
+
+    #[test]
+    fn nibs_to_byte() {
+        assert_eq!(set1::nibs_to_byte(0b0000, 0b0000), 0b00000000);
+        assert_eq!(set1::nibs_to_byte(0b1111, 0b0000), 0b11110000);
+        assert_eq!(set1::nibs_to_byte(0b0000, 0b1111), 0b00001111);
+        assert_eq!(set1::nibs_to_byte(0b1010, 0b1010), 0b10101010);
+    }
+
+    #[test]
+    fn nibs_to_bytes() {
+        assert_eq!(set1::nibs_to_bytes(&[0b0000, 0b0000]), &[0b00000000]);
+        assert_eq!(set1::nibs_to_bytes(&[0b1111, 0b0000]), &[0b11110000]);
+        assert_eq!(set1::nibs_to_bytes(&[0b0000, 0b1111]), &[0b00001111]);
+        assert_eq!(set1::nibs_to_bytes(&[0b1010, 0b1010]), &[0b10101010]);
+    }
+
+    #[test]
+    fn byte_triple_to_6bit() {
+        assert_eq!(
+            set1::byte_triple_to_6bit((0b00000000, 0b00010000, 0b10000011)),
+            (0b000000, 0b000001, 0b000010, 0b000011)
+        );
+
+        assert_eq!(
+            set1::byte_triple_to_6bit((0b01101111, 0b01101111, 0b01101101)),
+            (0b011011, 0b110110, 0b111101, 0b101101)
+        );
+    }
+
+    #[test]
+    fn bytes_to_base64() {
+        assert_eq!(
+            set1::bytes_to_base64(&[0b00000000, 0b00010000, 0b10000011]),
+            "ABCD"
+        );
+        // If I make padding work
+        // assert_eq!(set1::bytes_to_base64(&[0b00000000]), "AA==");
+    }
+
+    #[test]
+    fn hex_to_base64() {
+        // Data from: https://cryptopals.com/sets/1/challenges/1
+        let input = "49276d206b696c6c696e6720796f757220627261696e206c696b65206120706f69736f6e6f7573206d757368726f6f6d";
+        let output = "SSdtIGtpbGxpbmcgeW91ciBicmFpbiBsaWtlIGEgcG9pc29ub3VzIG11c2hyb29t";
+
+        let result = set1::hex_to_base64(&input);
+
+        assert_eq!(result, output);
+    }
+}
