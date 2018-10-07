@@ -81,10 +81,22 @@ fn bytes_to_base64(bytes: &[u8]) -> String {
             52...61 => result.push((val - 4) as char),
             62 => result.push('+'),
             63 => result.push('/'),
-            _ => unreachable!() // should be 6 bit, this isn't reachable there
+            _ => unreachable!() // should be 6 bit, this should not be reachable
         }
     }
     result
+}
+
+fn nibs_to_hex(nibbles: &[u8]) -> String {
+    let mut hex = String::new();
+    for nib in nibbles {
+        match nib {
+            0...9 => hex.push((nib + 48) as char),
+            10...15 => hex.push((nib + 87) as char),
+            _ => unreachable!() // should be 4 bit, this should not be reachable
+        }
+    }
+    hex
 }
 
 // Convert 3 bytes into 4 6-bit u8s
@@ -108,6 +120,18 @@ fn hex_to_base64(input: &str) -> String {
     let bytes = nibs_to_bytes(&nibs);
     let res = bytes_to_base64(&bytes);
     res
+}
+
+fn xor(left_hex: &str, right_hex: &str) -> String {
+    let left_nibs = hex_to_nibbles(left_hex);
+    let right_nibs = hex_to_nibbles(right_hex);
+
+    let xored: Vec<u8> = left_nibs.iter()
+        .zip(right_nibs.iter())
+        .map(|(left, right)| left ^ right)
+        .collect();
+
+    nibs_to_hex(&xored)
 }
 
 #[cfg(test)]
@@ -170,5 +194,16 @@ mod tests {
         let result = set1::hex_to_base64(&input);
 
         assert_eq!(result, output);
+    }
+
+    #[test]
+    fn xor() {
+        //Data from: https://cryptopals.com/sets/1/challenges/2
+        let left = "1c0111001f010100061a024b53535009181c";
+        let right = "686974207468652062756c6c277320657965";
+
+        let result = set1::xor(&left, &right);
+
+        assert_eq!(result, "746865206b696420646f6e277420706c6179");
     }
 }
