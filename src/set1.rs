@@ -230,6 +230,37 @@ fn xor_encrypt_with_key(plaintext: &str, key: &str) -> String {
     hex_encode(&encrypted)
 }
 
+fn decrypt_repeating_xor(base64: &str) -> String {
+    // Decode base64
+    //
+    // Guess KEYSIZE, 2-40
+    unimplemented!();
+}
+
+fn byte_hamming_distance(left: &u8, right: &u8) -> usize {
+    // C impl from: https://en.wikipedia.org/wiki/Hamming_distance
+    //
+    // Example:
+    //  left: 1111, right: 1010 = expected distance: 2
+    //  val = 1111 ^ 1010 =   0101
+    //      distance++, val = 0101 & 0100 = 0100, val != 0
+    //      distance++, val = 0100 & 0011 = 0000, val == 0
+    //  distance = 2
+    let mut distance: usize = 0;
+    let mut val = left ^ right;
+
+    while val != 0 {
+        distance += 1;
+        val &= val - 1;
+    }
+
+    distance
+}
+
+fn hamming_distance(left: &[u8], right: &[u8]) -> usize {
+    left.iter().zip(right.iter()).map(|(l, r)| byte_hamming_distance(l, r)).sum()
+}
+
 #[cfg(test)]
 mod tests {
     use set1;
@@ -366,5 +397,28 @@ mod tests {
             ciphertext,
             "0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f"
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn decrypt_repeating_xor() {
+        let mut f = File::open("src/data/challenge6.txt").expect("file not found");
+        let mut contents = String::new();
+        f.read_to_string(&mut contents)
+            .expect("something went wrong reading the file");
+
+        let result = set1::decrypt_repeating_xor(&contents);
+
+        assert_eq!(result, "Something".to_string());
+    }
+
+    #[test]
+    fn hamming_distance() {
+        let left = "this is a test";
+        let right = "wokka wokka!!!";
+
+        let distance = set1::hamming_distance(left.as_bytes(), right.as_bytes());
+
+        assert_eq!(distance, 37usize);
     }
 }
