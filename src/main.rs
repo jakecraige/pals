@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 extern crate base64;
+extern crate openssl;
 
 mod set1;
 

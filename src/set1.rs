@@ -3,6 +3,8 @@
 use base64::decode as base64decode;
 use std::collections::HashMap;
 use std::str;
+use openssl::symm::{decrypt, Cipher};
+use openssl::error::ErrorStack;
 
 fn hex_to_nibbles(input: &str) -> Vec<u8> {
     // Can also be done with some ascii shifting described in
@@ -346,11 +348,17 @@ fn hamming_distance(left: &[u8], right: &[u8]) -> usize {
         .sum()
 }
 
+fn aes_ecb_decrypt(input: &[u8], key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+    let cipher = Cipher::aes_128_ecb();
+    decrypt(cipher, key, None, input)
+}
+
 #[cfg(test)]
 mod tests {
     use set1;
     use std::fs::File;
     use std::io::Read;
+    use base64::decode as base64decode;
 
     #[test]
     fn hex_to_nibbles() {
@@ -518,5 +526,28 @@ mod tests {
         let result = set1::transpose(input);
 
         assert_eq!(result, output);
+    }
+
+    #[test]
+    fn aes_ecb_decrypt() {
+        let key = "YELLOW SUBMARINE";
+        let input = base64decode(&read_file("src/data/challenge7.txt")).unwrap();
+
+        let pt_bytes = set1::aes_ecb_decrypt(&input, key.as_bytes()).unwrap();
+        let plaintext = String::from_utf8(pt_bytes).unwrap();
+
+        println!("Plaintext: {}", plaintext);
+        assert!(plaintext.contains("My posse's to the side yellin', Go Vanilla Go!"));
+    }
+
+    // Helper to read a file from disk unsafely and strip newlines
+    fn read_file(path: &str) -> String {
+        let mut f = File::open(path).expect("file not found");
+        let mut contents = String::new();
+        f.read_to_string(&mut contents)
+            .expect("something went wrong reading the file");
+        // base64 crate can't handle newlines
+        contents = contents.replace("\n", "");
+        contents
     }
 }
