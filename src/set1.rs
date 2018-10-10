@@ -1,8 +1,8 @@
 // Helpful resource for testing: https://cryptii.com/pipes/base64-to-hex
 // Resource for bit fiddling: http://www.coranac.com/documents/working-with-bits-and-bitfields/
+use base64::decode as base64decode;
 use std::collections::HashMap;
 use std::str;
-use base64::{decode as base64decode};
 
 fn hex_to_nibbles(input: &str) -> Vec<u8> {
     // Can also be done with some ascii shifting described in
@@ -147,28 +147,12 @@ fn decrypt_single_byte_xor_with_score(input: &str) -> Option<(usize, Vec<u8>)> {
     let nibs = hex_to_nibbles(input);
     let bytes = nibs_to_bytes(&nibs);
 
-    let ascii_plaintexts_with_scores = (48..123u8) // ASCII letters
-        // Decrypt using only ascii A-Za-z
-        .map(|char_int| decrypt_bytes_with_byte(&bytes, char_int))
-        // Filter to things that only include ascii chars
-        .filter(|bytes| bytes.iter().all(|byte| byte >= &0 && byte < &126))
-        // Calculate frequency and score
-        .map(|plaintext| {
-            let frequency = text_frequency(&plaintext);
-            let score = frequency_score(&frequency);
-            (score, plaintext)
-        });
-
-    // Return the one with the highest score
-    ascii_plaintexts_with_scores.max_by_key(|x| x.0)
+    decrypt_single_byte_xor_with_score_bytes(&bytes).map(|(score, _, bytes)| (score, bytes))
 }
 
 fn decrypt_single_byte_xor_with_score_bytes(bytes: &[u8]) -> Option<(usize, char, Vec<u8>)> {
-    let ascii_plaintexts_with_scores = (48..123u8) // ASCII letters
-        // Decrypt using only ascii A-Za-z
+    let ascii_plaintexts_with_scores = (0..127u8) // ASCII letters
         .map(|char_int| (char_int, decrypt_bytes_with_byte(&bytes, char_int)))
-        // Filter to things that only include ascii chars
-        .filter(|(_, bytes)| bytes.iter().all(|byte| byte >= &0 && byte < &126))
         // Calculate frequency and score
         .map(|(char_int, plaintext)| {
             let frequency = text_frequency(&plaintext);
@@ -257,69 +241,62 @@ fn xor_decrypt_with_key(plaintext: &[u8], key: &[u8]) -> Vec<u8> {
 }
 
 fn decrypt_repeating_xor(base64: &str) -> String {
-    // Decode base64
     let bytes = base64decode(base64).unwrap();
-    //
+
     // For each KEYSIZE, 2-40, take first and second keysize of bytes, calculate normalized
     // distance, and select the lowest as the likely key size.
-    // let mut best_key_size = 0;
-    // let mut lowest_distance = 999999;
-    // for key_size in 2..41 {
-        // // let mut chunks = bytes.chunks(key_size);
-        // // let left = chunks.next().unwrap();
-        // // let right = chunks.next().unwrap();
-        // // let distance = hamming_distance(left, right);
-        // // let normalized_distance = distance / key_size;
-        // // if normalized_distance < lowest_distance {
-            // // best_key_size = key_size;
-            // // lowest_distance = normalized_distance;
-        // // }
+    let mut lowest_distance = 999999;
+    let mut best_sizes: Vec<usize> = vec![];
+    for key_size in 2..41 {
+        let mut chunks = bytes.chunks(key_size);
+        // Take 4 blocks and average them for the distance
+        let distance1 = hamming_distance(chunks.next().unwrap(), chunks.next().unwrap());
+        let distance2 = hamming_distance(chunks.next().unwrap(), chunks.next().unwrap());
+        let normalized_distance = ((distance1 + distance2) / 2) / key_size;
 
-        // let blocks: Vec<Vec<u8>> = bytes.chunks(key_size).map(|block| block.to_vec()).collect();
-        // let transposed: Vec<Vec<u8>> = transpose(blocks);
+        if normalized_distance < lowest_distance {
+            // We have a new best distance, clear out prev sizes and add in the new one.
+            best_sizes.clear();
+            best_sizes.push(key_size);
+            lowest_distance = normalized_distance;
+        } else if normalized_distance == lowest_distance {
+            // Same distance, we add this key size to the options
+            best_sizes.push(key_size);
+        }
+    }
 
-        // // Solve each block as if it was single-character XOR. You already have code to do this.
-        // //
-        // // For each block, the single-byte XOR key that produces the best looking histogram is the
-        // // repeating-key XOR key byte for that block. Put them together and you have the key.
-        // let mut key = String::new();
-        // for block in &transposed {
-            // let res = decrypt_single_byte_xor_with_score_bytes(&block);
-            // if let Some((score, c, plaintext)) = &res {
-                // if score > &0 {
-                    // key.push(*c);
-                // }
-            // }
-        // }
-        // // TerminatornX:nBringnthennoise?
-        // // println!("Key: {:?}", key);
-    // }
+    let mut best_score = 0;
+    let mut found_key = String::new();
+    for key_size in &best_sizes {
+        let blocks: Vec<Vec<u8>> = bytes
+            .chunks(*key_size)
+            .map(|block| block.to_vec())
+            .collect();
+        let transposed: Vec<Vec<u8>> = transpose(blocks);
 
-    let key = "TerminatornX:nBringnthennoise";
-    let output = xor_decrypt_with_key(&bytes, key.as_bytes());
-    println!("Output: {:?}", str::from_utf8(&output).ok());
+        // Solve each block as if it was single-character XOR. You already have code to do this.
+        //
+        // For each block, the single-byte XOR key that produces the best looking histogram is the
+        // repeating-key XOR key byte for that block. Put them together and you have the key.
+        let mut key = String::new();
+        let mut total_score = 0;
+        for block in &transposed {
+            let res = decrypt_single_byte_xor_with_score_bytes(&block);
+            if let Some((score, c, plaintext)) = &res {
+                if score > &0 {
+                    total_score += score;
+                    key.push(*c);
+                }
+            }
+        }
+        if total_score > best_score {
+            best_score = total_score;
+            found_key = key;
+        }
+    }
 
-
-    // let blocks: Vec<Vec<u8>> = bytes.chunks(best_key_size).map(|block| block.to_vec()).collect();
-    // let transposed: Vec<Vec<u8>> = transpose(blocks);
-
-    // // Solve each block as if it was single-character XOR. You already have code to do this.
-    // //
-    // // For each block, the single-byte XOR key that produces the best looking histogram is the
-    // // repeating-key XOR key byte for that block. Put them together and you have the key.
-    // for block in &transposed {
-        // let res = decrypt_single_byte_xor_with_score_bytes(&block);
-        // if let Some((score, c, plaintext)) = &res {
-            // if score > &0 {
-                // println!("{:?}, {:?}, {:?}", score, c, String::from_utf8(plaintext.to_vec()).ok());
-            // }
-        // }
-    // }
-
-    // println!("Transposed: {:?}", transposed.len());
-    // println!("Best key size: {}", best_key_size);
-
-    unimplemented!();
+    let plaintext = xor_decrypt_with_key(&bytes, found_key.as_bytes());
+    String::from_utf8(plaintext).unwrap()
 }
 
 fn transpose(input: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
@@ -363,7 +340,10 @@ fn byte_hamming_distance(left: &u8, right: &u8) -> usize {
 }
 
 fn hamming_distance(left: &[u8], right: &[u8]) -> usize {
-    left.iter().zip(right.iter()).map(|(l, r)| byte_hamming_distance(l, r)).sum()
+    left.iter()
+        .zip(right.iter())
+        .map(|(l, r)| byte_hamming_distance(l, r))
+        .sum()
 }
 
 #[cfg(test)]
@@ -510,11 +490,14 @@ mod tests {
         let mut contents = String::new();
         f.read_to_string(&mut contents)
             .expect("something went wrong reading the file");
+        // base64 crate can't handle newlines
         contents = contents.replace("\n", "");
 
         let result = set1::decrypt_repeating_xor(&contents);
 
-        assert_eq!(result, "Something".to_string());
+        // If you want to see it...
+        // println!("Plaintext: {}", result);
+        assert_eq!(result.len(), 2876);
     }
 
     #[test]
