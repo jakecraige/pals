@@ -119,9 +119,13 @@ fn byte_triple_to_6bit(bytes: (u8, u8, u8)) -> (u8, u8, u8, u8) {
     (p1, p2, p3, p4)
 }
 
+fn hex_decode(hex: &str) -> Vec<u8> {
+    let nibs = hex_to_nibbles(hex);
+    nibs_to_bytes(&nibs)
+}
+
 fn hex_to_base64(input: &str) -> String {
-    let nibs = hex_to_nibbles(input);
-    let bytes = nibs_to_bytes(&nibs);
+    let bytes = hex_decode(input);
     // There be easter egg here:
     // println!("{:?}", str::from_utf8(&bytes).unwrap());
     let res = bytes_to_base64(&bytes);
@@ -353,6 +357,38 @@ fn aes_ecb_decrypt(input: &[u8], key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
     decrypt(cipher, key, None, input)
 }
 
+fn bytes_to_16bit_blocks(bytes: &[u8]) -> Vec<u16> {
+    bytes.chunks(2).map(|byte_pair| {
+        let mut block = 0u16;
+        block ^= byte_pair[0] as u16;
+        block <<= 8;
+        block ^= byte_pair[1] as u16;
+        block
+    }).collect()
+}
+
+fn num_duplicate_blocks(bytes: &[u16]) -> usize {
+    let mut byte_map: HashMap<u16, usize> = HashMap::new();
+
+    for byte in bytes {
+        let count = byte_map.entry(*byte).or_insert(0);
+        *count += 1;
+    }
+
+    let max_dup = byte_map.iter().map(|kv| kv.1).max();
+    max_dup.unwrap_or(&0).clone()
+}
+
+fn detect_aes_ecb_from_hex_lines(input: &str) -> Option<String> {
+    input.lines()
+        .map(|line| hex_decode(line))
+        // Retain bytes value in u8 while making sure to check duplicate blocks with 16 bit values
+        // since that's the length of the key that was used for the input.
+        .map(|bytes| (bytes.clone(), num_duplicate_blocks(&bytes_to_16bit_blocks(&bytes))))
+        .max_by_key(|tup| tup.1)
+        .map(|tup| hex_encode(&tup.0))
+}
+
 #[cfg(test)]
 mod tests {
     use set1;
@@ -531,7 +567,7 @@ mod tests {
     #[test]
     fn aes_ecb_decrypt() {
         let key = "YELLOW SUBMARINE";
-        let input = base64decode(&read_file("src/data/challenge7.txt")).unwrap();
+        let input = base64decode(&read_file("src/data/challenge7.txt", true)).unwrap();
 
         let pt_bytes = set1::aes_ecb_decrypt(&input, key.as_bytes()).unwrap();
         let plaintext = String::from_utf8(pt_bytes).unwrap();
@@ -540,14 +576,33 @@ mod tests {
         assert!(plaintext.contains("My posse's to the side yellin', Go Vanilla Go!"));
     }
 
+    #[test]
+    fn detect_aes_ecb_from_hex_lines() {
+        let input = read_file("src/data/challenge8.txt", false);
+
+        let hex_str = set1::detect_aes_ecb_from_hex_lines(&input).unwrap();
+
+        println!("Plaintext: {}", hex_str);
+        assert!(hex_str.contains("d880619740a8a19b"));
+    }
+
+    #[test]
+    fn bytes_to_16bit_blocks() {
+        let output = set1::bytes_to_16bit_blocks(&vec![0b00000000, 0b11111111]);
+        assert_eq!(output, vec![0b0000000011111111]);
+    }
+
     // Helper to read a file from disk unsafely and strip newlines
-    fn read_file(path: &str) -> String {
+    fn read_file(path: &str, remove_newlines: bool) -> String {
         let mut f = File::open(path).expect("file not found");
         let mut contents = String::new();
         f.read_to_string(&mut contents)
             .expect("something went wrong reading the file");
         // base64 crate can't handle newlines
-        contents = contents.replace("\n", "");
+        if remove_newlines {
+            contents = contents.replace("\n", "");
+        }
+
         contents
     }
 }
