@@ -217,7 +217,7 @@ fn frequency_score(frequency: &HashMap<char, usize>) -> usize {
         + frequency.get(&'u').unwrap_or(&0)
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
+pub fn hex_encode(bytes: &[u8]) -> String {
     let mut s = String::new();
     for byte in bytes {
         // If I want to actually implement hex encoding, turn bytes into nibbles, then map them to

@@ -1,3 +1,5 @@
+mod aes_cbc;
+
 // Description from RFC-2315
 //
 // The method shall be to pad the input at the trailing end with k - (l mod k) octets all having
