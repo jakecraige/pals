@@ -37,7 +37,7 @@ fn xor_slices(left: &[u8], right: &[u8]) -> Vec<u8> {
 // AES block size is 128 bits (16 bytes)
 const BYTES_IN_BLOCK: usize = 16;
 
-fn encrypt(data: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+pub fn encrypt(data: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, ErrorStack> {
     let mut ciphertext: Vec<u8> = vec![];
 
     let mut prev_block = iv.to_vec();

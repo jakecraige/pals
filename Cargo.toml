@@ -6,3 +6,4 @@ authors = ["Jake Craige <jake@example.com>"]
 [dependencies]
 base64 = "0.9.3"
 openssl = "0.10.12"
+rand = "  0.5"
