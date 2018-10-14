@@ -357,7 +357,7 @@ fn aes_ecb_decrypt(input: &[u8], key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
     decrypt(cipher, key, None, input)
 }
 
-fn bytes_to_16bit_blocks(bytes: &[u8]) -> Vec<u16> {
+pub fn bytes_to_16byte_blocks(bytes: &[u8]) -> Vec<u16> {
     bytes.chunks(2).map(|byte_pair| {
         let mut block = 0u16;
         block ^= byte_pair[0] as u16;
@@ -367,7 +367,7 @@ fn bytes_to_16bit_blocks(bytes: &[u8]) -> Vec<u16> {
     }).collect()
 }
 
-fn num_duplicate_blocks(bytes: &[u16]) -> usize {
+pub fn num_duplicate_blocks(bytes: &[u16]) -> usize {
     let mut byte_map: HashMap<u16, usize> = HashMap::new();
 
     for byte in bytes {
@@ -384,7 +384,7 @@ fn detect_aes_ecb_from_hex_lines(input: &str) -> Option<String> {
         .map(|line| hex_decode(line))
         // Retain bytes value in u8 while making sure to check duplicate blocks with 16 bit values
         // since that's the length of the key that was used for the input.
-        .map(|bytes| (bytes.clone(), num_duplicate_blocks(&bytes_to_16bit_blocks(&bytes))))
+        .map(|bytes| (bytes.clone(), num_duplicate_blocks(&bytes_to_16byte_blocks(&bytes))))
         .max_by_key(|tup| tup.1)
         .map(|tup| hex_encode(&tup.0))
 }
@@ -587,8 +587,8 @@ mod tests {
     }
 
     #[test]
-    fn bytes_to_16bit_blocks() {
-        let output = set1::bytes_to_16bit_blocks(&vec![0b00000000, 0b11111111]);
+    fn bytes_to_16byte_blocks() {
+        let output = set1::bytes_to_16byte_blocks(&vec![0b00000000, 0b11111111]);
         assert_eq!(output, vec![0b0000000011111111]);
     }
 
