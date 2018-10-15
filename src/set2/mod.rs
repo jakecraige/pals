@@ -1,6 +1,7 @@
 mod aes_cbc;
 mod mode_detection;
 mod byte_decryption;
+mod ecb_cut_and_paste;
 
 // Description from RFC-2315
 //
