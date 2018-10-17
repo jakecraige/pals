@@ -143,6 +143,21 @@ mod tests {
     }
 
     #[test]
+    fn remove_padding_with_challenge_input() {
+        let plaintext = b"ICE ICE BABY\x04\x04\x04\x04";
+        let plaintext_no_pad = aes_cbc::remove_padding(plaintext).unwrap();
+        assert_eq!(plaintext_no_pad, b"ICE ICE BABY");
+
+        let plaintext = b"ICE ICE BABY\x05\x05\x05\x05";
+        let err = aes_cbc::remove_padding(plaintext).expect_err("expect padding error");
+        assert_eq!(err, aes_cbc::PaddingError(5, 4));
+
+        let plaintext = b"ICE ICE BABY\x01\x02\x03\x04";
+        let err = aes_cbc::remove_padding(plaintext).expect_err("expect padding error");
+        assert_eq!(err, aes_cbc::PaddingError(4, 1));
+    }
+
+    #[test]
     fn aes_cbc_decrypt_example() {
         let file = read_file("src/data/challenge10.txt", true);
         let ciphertext = base64decode(&file).expect("should be decodable");
