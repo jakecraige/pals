@@ -109,7 +109,6 @@ mod tests {
         let email_for_attack = "foofoofoofoo@barbarbarbar.com";
         let profile = ecb_cut_and_paste::profile_for(&email_for_attack);
         let mut ct = ecb_cut_and_paste::ecb_encrypt(&profile.as_bytes(), key);
-        let pt = ecb_cut_and_paste::ecb_decrypt(&ct, key);
 
         // Drop last block and add in our admin role
         ct.drain(48..);
