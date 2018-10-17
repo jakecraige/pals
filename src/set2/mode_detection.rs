@@ -11,7 +11,7 @@ fn rand_bytes(bytes: usize) -> Vec<u8> {
 }
 
 // Generate number in range from min to max inclusive
-fn rand_in_range(min: usize, max: usize) -> usize {
+pub fn rand_in_range(min: usize, max: usize) -> usize {
     let mut rng = thread_rng();
     rng.gen_range(min, max + 1)
 }
