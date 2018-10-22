@@ -4,7 +4,7 @@ use rand::prelude::{thread_rng, Rng, random as randbool};
 use set2::aes_cbc;
 use set1::{bytes_to_16byte_blocks, num_duplicate_blocks};
 
-fn rand_bytes(bytes: usize) -> Vec<u8> {
+pub fn rand_bytes(bytes: usize) -> Vec<u8> {
     let mut buf = vec![0; bytes];
     openssl::rand::rand_bytes(&mut buf).unwrap();
     buf.to_vec()

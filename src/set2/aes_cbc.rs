@@ -42,18 +42,24 @@ pub fn encrypt(data: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, ErrorStack
 
     let mut prev_block = iv.to_vec();
     for block in data.chunks(BYTES_IN_BLOCK) {
-        let padded_block = pkcs_7_pad(&block, BYTES_IN_BLOCK);
-        let next_block = xor_slices(&padded_block, &prev_block);
-        let mut encrypted_next_block = openssl_ecb_encrypt_block(&next_block, &key)?;
+        // I think there's still something slightly wrong here if the block is exactly 16 bytes.
+        // We should be padding it with an extra block but we aren't.
+        let padded_block: Vec<u8> = if block.len() < BYTES_IN_BLOCK {
+            pkcs_7_pad(&block, BYTES_IN_BLOCK)
+        } else {
+            block.to_vec()
+        };
+        let next_block = xor_slices(&prev_block, &padded_block);
+        let encrypted_next_block = openssl_ecb_encrypt_block(&next_block, &key)?;
+        ciphertext.append(&mut encrypted_next_block.clone());
 
-        ciphertext.append(&mut encrypted_next_block);
         prev_block = encrypted_next_block;
     }
 
     Ok(ciphertext)
 }
 
-fn decrypt(data: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, PaddingError> {
+pub fn decrypt(data: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, PaddingError> {
     let mut offset_data = iv.to_vec();
     offset_data.append(&mut data.to_vec());
 
@@ -69,7 +75,7 @@ fn decrypt(data: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, PaddingError> 
 }
 
 #[derive(Debug, PartialEq)]
-struct PaddingError(u8, u8); // expected, actual
+pub struct PaddingError(u8, u8); // expected, actual
 
 fn remove_padding(data: &[u8]) -> Result<Vec<u8>, PaddingError> {
     if data.len() == 0 {
