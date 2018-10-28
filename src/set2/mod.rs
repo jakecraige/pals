@@ -3,6 +3,7 @@ mod mode_detection;
 mod byte_decryption;
 mod ecb_cut_and_paste;
 mod cbc_bitflip;
+mod padding_oracle;
 
 // Description from RFC-2315
 //
