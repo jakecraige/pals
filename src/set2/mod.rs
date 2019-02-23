@@ -1,4 +1,4 @@
-mod aes_cbc;
+pub mod aes_cbc;
 mod mode_detection;
 mod byte_decryption;
 mod ecb_cut_and_paste;

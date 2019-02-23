@@ -2,7 +2,7 @@ use openssl::symm::{Cipher, Crypter, Mode};
 use openssl::error::ErrorStack;
 use set2::pkcs_7_pad;
 
-fn openssl_ecb_encrypt_block(data: &[u8], key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
+pub fn openssl_ecb_encrypt_block(data: &[u8], key: &[u8]) -> Result<Vec<u8>, ErrorStack> {
     let cipher = Cipher::aes_128_ecb();
 
     // Must use this more complicated scheme to disable padding since we handle adding padding
