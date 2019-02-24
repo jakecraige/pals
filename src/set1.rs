@@ -156,8 +156,8 @@ fn decrypt_single_byte_xor_with_score(input: &str) -> Option<(usize, Vec<u8>)> {
     decrypt_single_byte_xor_with_score_bytes(&bytes).map(|(score, _, bytes)| (score, bytes))
 }
 
-fn decrypt_single_byte_xor_with_score_bytes(bytes: &[u8]) -> Option<(usize, char, Vec<u8>)> {
-    let ascii_plaintexts_with_scores = (0..127u8) // ASCII letters
+pub fn decrypt_single_byte_xor_with_score_bytes(bytes: &[u8]) -> Option<(usize, char, Vec<u8>)> {
+    let ascii_plaintexts_with_scores = (0..255u8) // ASCII letters
         .map(|char_int| (char_int, decrypt_bytes_with_byte(&bytes, char_int)))
         // Calculate frequency and score
         .map(|(char_int, plaintext)| {
@@ -305,7 +305,7 @@ fn decrypt_repeating_xor(base64: &str) -> String {
     String::from_utf8(plaintext).unwrap()
 }
 
-fn transpose(input: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+pub fn transpose(input: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
     let len = input.len();
     let mut output: Vec<Vec<u8>> = vec![];
 

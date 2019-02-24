@@ -4,9 +4,10 @@ mod tests {
     use std::io::Read;
     use base64::decode as base64decode;
     use set3::aes_ctr::{encrypt};
+    use set1::{transpose, decrypt_single_byte_xor_with_score_bytes};
 
     #[test]
-    fn ctr_nonce_reuse() {
+    fn ctr_nonce_reuse_19() {
         let key = b"YELLOW SUBMARINE";
         let nonce: u64 = 0;
         let file = read_file("src/data/challenge19.txt");
@@ -40,6 +41,43 @@ mod tests {
         assert_eq!(second_pt, decrypted_second_ct);
     }
 
+    #[test]
+    fn ctr_nonce_reuse_20() {
+        let key = b"YELLOW SUBMARINE";
+        let nonce: u64 = 0;
+        let file = read_file("src/data/challenge20.txt");
+        let ciphertexts: Vec<Vec<u8>> = file.lines().map(|line| {
+            let pt = base64decode(line).unwrap();
+            print_string(&pt);
+            encrypt(&pt, key, nonce)
+        }).collect();
+        let mut min_len = 9999999;
+        for content in ciphertexts.clone() {
+            if content.len() < min_len {
+                min_len = content.len();
+            }
+        }
+        let ciphertexts: Vec<Vec<u8>> = ciphertexts.iter().map(|ct| ct[0..min_len].to_vec()).collect();
+        // NOTE: transpose doesn't currently work if len is longer than the block size
+        let transposed = transpose(ciphertexts[0..min_len].to_vec());
+
+        let mut key: Vec<u8> = vec![];
+        for block in &transposed {
+            let res = decrypt_single_byte_xor_with_score_bytes(&block);
+            if let Some((score, c, plaintext)) = &res {
+                key.push(*c as u8);
+            }
+        }
+
+        for ct in ciphertexts {
+            let content = xor(&ct, &key);
+            print_chars(&content);
+        }
+
+        // We just mark this as passed since we manually verify it works.
+        assert!(true);
+    }
+
     // Helper to read a file from disk unsafely and strip newlines
     fn read_file(path: &str) -> String {
         let mut f = File::open(path).expect("file not found");
@@ -52,6 +90,18 @@ mod tests {
     fn print_string(input: &[u8]) {
         let pt_str = String::from_utf8(input.to_vec()).expect("valid pt");
         println!("{:?}", pt_str);
+    }
+
+    fn print_chars(input: &[u8]) {
+        let mut s = String::new();
+        for i in input {
+            if *i > 0 && *i < 122 {
+                s.push(*i as char);
+            } else {
+                s.push(' ');
+            }
+        }
+        println!("{:?}", s);
     }
 
     fn xor(left: &[u8], right: &[u8]) -> Vec<u8> {
