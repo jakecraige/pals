@@ -19,7 +19,44 @@ macro_rules! modulo_signed_ext_impl {
         }
     )*)
 }
-modulo_signed_ext_impl! { i8 i16 i32 i64 }
+modulo_signed_ext_impl! { i64 }
+
+/// Returns a three-tuple (gcd, x, y) such that
+/// a * x + b * y == gcd, where gcd is the greatest
+/// common divisor of a and b.
+///
+/// This function implements the extended Euclidean
+/// algorithm and runs in O(log b) in the worst case.
+fn extended_euclidean_algorithm(a: i64, b: i64) -> (i64, i64, i64) {
+    let mut s = 0;
+    let mut old_s = 1;
+
+    let mut t = 1;
+    let mut old_t = 0;
+
+    let mut r = b;
+    let mut old_r = a;
+
+    let mut quotient;
+    let mut tmp;
+    while r != 0 {
+        quotient = old_r / r;
+
+        tmp = old_r;
+        old_r = r;
+        r = tmp - (quotient * r);
+
+        tmp = old_s;
+        old_s = s;
+        s = tmp - (quotient * s);
+
+        tmp = old_t;
+        old_t = t;
+        t = tmp - (quotient * t);
+    }
+
+    (old_r, old_s, old_t)
+}
 
 #[derive(Debug, PartialEq, Clone)]
 enum Point {
@@ -83,30 +120,46 @@ impl Curve {
     }
 }
 
+
+/// Finite field over p
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct Field {
+    p: i64
+}
+
+impl Field {
+    fn new(p: i64) -> Field {
+        Field { p }
+    }
+
+    fn elem(&self, value: i64) -> FieldElement {
+        FieldElement::new(value, self.p)
+    }
+}
+
+/// Value within Field F_p
 #[derive(Debug, PartialEq, Clone, Copy)]
 struct FieldElement {
     value: i64,
-    modulo: i64
+    p: i64
 }
 
-type FE = FieldElement;
-
 impl FieldElement {
-    fn new(value: i64, modulo: i64) -> FieldElement {
-        FieldElement { value, modulo }
+    fn new(value: i64, p: i64) -> FieldElement {
+        FieldElement { value, p }
     }
 
     fn inverse(self) -> FieldElement {
-        let (gcd, x, y) = extended_euclidean_algorithm(self.value, self.modulo);
-        if (self.value * x + self.modulo * y).modulo(self.modulo) != gcd {
+        let (gcd, x, y) = extended_euclidean_algorithm(self.value, self.p);
+        if (self.value * x + self.p * y).modulo(self.p) != gcd {
             panic!("AHHH");
         }
 
         if gcd != 1 { // Either n is 0, or p is not a prime number.
-            panic!("{} has no multiplicative inverse modulo {}", self.value, self.modulo);
+            panic!("{} has no multiplicative inverse modulo {}", self.value, self.p);
         }
 
-        FieldElement::new(x.modulo(self.modulo), self.modulo)
+        FieldElement::new(x.modulo(self.p), self.p)
     }
 }
 
@@ -114,7 +167,7 @@ impl Add for FieldElement {
     type Output = FieldElement;
 
     fn add(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value + rhs.value).modulo(rhs.modulo);
+        let value = (self.value + rhs.value).modulo(rhs.p);
         FieldElement { value, ..rhs }
     }
 }
@@ -123,7 +176,7 @@ impl Sub for FieldElement {
     type Output = FieldElement;
 
     fn sub(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value - rhs.value).modulo(rhs.modulo);
+        let value = (self.value - rhs.value).modulo(rhs.p);
         FieldElement { value, ..rhs }
     }
 }
@@ -132,46 +185,9 @@ impl Mul for FieldElement {
     type Output = FieldElement;
 
     fn mul(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value * rhs.value).modulo(rhs.modulo);
+        let value = (self.value * rhs.value).modulo(rhs.p);
         FieldElement { value, ..rhs }
     }
-}
-
-/// Returns a three-tuple (gcd, x, y) such that
-/// a * x + b * y == gcd, where gcd is the greatest
-/// common divisor of a and b.
-///
-/// This function implements the extended Euclidean
-/// algorithm and runs in O(log b) in the worst case.
-fn extended_euclidean_algorithm(a: i64, b: i64) -> (i64, i64, i64) {
-    let mut s = 0;
-    let mut old_s = 1;
-
-    let mut t = 1;
-    let mut old_t = 0;
-
-    let mut r = b;
-    let mut old_r = a;
-
-    let mut quotient;
-    let mut tmp;
-    while r != 0 {
-        quotient = old_r / r;
-
-        tmp = old_r;
-        old_r = r;
-        r = tmp - (quotient * r);
-
-        tmp = old_s;
-        old_s = s;
-        s = tmp - (quotient * s);
-
-        tmp = old_t;
-        old_t = t;
-        t = tmp - (quotient * t);
-    }
-
-    (old_r, old_s, old_t)
 }
 
 impl Div for FieldElement {
@@ -184,7 +200,7 @@ impl Div for FieldElement {
 
 #[cfg(test)]
 mod tests {
-    use ecc::{Curve, Point, FE, extended_euclidean_algorithm};
+    use ecc::{Curve, Point, Field, extended_euclidean_algorithm};
 
     #[test]
     fn working_extended_euclidean_algorithm() {
@@ -195,20 +211,23 @@ mod tests {
 
     #[test]
     fn ecc_field_element() {
+        let f = Field::new(23);
         // addition
-        assert_eq!(FE::new(18, 23) + FE::new(9, 23), FE::new(4, 23));
+        assert_eq!(f.elem(18) + f.elem(9), f.elem(4));
         // subtraction
-        assert_eq!(FE::new(7, 23) - FE::new(14, 23), FE::new(16, 23));
+        assert_eq!(f.elem(7) - f.elem(14), f.elem(16));
         // multiplication
-        assert_eq!(FE::new(4, 23) * FE::new(7, 23), FE::new(5, 23));
+        assert_eq!(f.elem(4) * f.elem(7), f.elem(5));
         // Additive inverse
-        assert_eq!(FE::new(-5, 23) + FE::new(0, 23), FE::new(18, 23));
+        assert_eq!(f.elem(-5) + f.elem(0), f.elem(18));
         // Multiplicative inverse
-        assert_eq!(FE::new(9, 23) * FE::new(18, 23), FE::new(1, 23));
+        assert_eq!(f.elem(9) * f.elem(18), f.elem(1));
     }
 
     fn ecc_field_element_inverse() {
-        assert_eq!(FE::new(9, 23).inverse(), FE::new(18, 23));
+        let f = Field::new(23);
+
+        assert_eq!(f.elem(9).inverse(), f.elem(18));
     }
 
     #[test]
