@@ -1,4 +1,4 @@
-use std::ops::{Add, Sub, Mul, Div};
+use std::ops::{Add, Sub, Mul, Div, Neg};
 
 ///
 /// Modulo that handles negative numbers, works the same as Python's `%`.
@@ -59,13 +59,13 @@ fn extended_euclidean_algorithm(a: i64, b: i64) -> (i64, i64, i64) {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Point {
+enum Point<T> {
     Infinity,
-    Coordinate { x: f64, y: f64 }
+    Coordinate { x: T, y: T }
 }
 
-impl Point {
-    fn inverse(&self) -> Point {
+impl<T: Copy + Neg<Output=T>> Point<T> {
+    fn inverse(&self) -> Point<T> {
         match *self {
             Point::Infinity => Point::Infinity,
             Point::Coordinate { x, y } => Point::Coordinate { x, y: -y },
@@ -75,16 +75,16 @@ impl Point {
 
 // Elliptic Curve in Weierstrass normal form: y^2 = x^3 + ax + b
 #[derive(Debug)]
-struct Curve {
-    a: f64,
-    b: f64
+struct Curve<T> {
+    a: T,
+    b: T
 }
 
-impl Curve {
+impl<T: PartialEq + Clone + Copy + IntMul + Add<Output=T> + Sub<Output=T> + Mul<Output=T> + Div<Output=T> + Neg<Output=T> > Curve<T> {
     // P + -P = 0
     // P + 0 = P = 0 + P
     // P + Q = -R
-    fn add(&self, p: Point, q: Point) -> Point {
+    fn add(&self, p: Point<T>, q: Point<T>) -> Point<T> {
         if p == q.inverse() {
             return Point::Infinity;
         }
@@ -97,7 +97,7 @@ impl Curve {
                 // We now have two non-zero, non-symmetric points to work with
                 let m = if x_p == x_q && y_p == y_p {
                     // Slope calculation is different when points are equal
-                    ((3. * (x_p * x_p)) + self.a) / (2. * y_p)
+                    (((x_p * x_p).int_mul(3)) + self.a) / y_p.int_mul(2)
                 } else {
                     (y_p - y_q) / (x_p - x_q)
                 };
@@ -113,7 +113,7 @@ impl Curve {
     }
 
     // Naive implementation. Replace with double-and-add.
-    fn naive_mul(&self, p: Point, n: i64) -> Point {
+    fn naive_mul(&self, p: Point<T>, n: i64) -> Point<T> {
         let mut r = Point::Infinity;
         for _ in 0..n { r = self.add(r, p.clone()); }
         r
@@ -163,6 +163,22 @@ impl FieldElement {
     }
 }
 
+trait IntMul {
+    fn int_mul(self, rhs: i64) -> Self;
+}
+
+impl IntMul for f64 {
+    fn int_mul(self, val: i64) -> f64 {
+        self * val as f64
+    }
+}
+
+impl IntMul for FieldElement {
+    fn int_mul(self, val: i64) -> FieldElement {
+        self * FieldElement::new(val, self.p)
+    }
+}
+
 impl Add for FieldElement {
     type Output = FieldElement;
 
@@ -178,6 +194,15 @@ impl Sub for FieldElement {
     fn sub(self, rhs: FieldElement) -> FieldElement {
         let value = (self.value - rhs.value).modulo(rhs.p);
         FieldElement { value, ..rhs }
+    }
+}
+
+impl Neg for FieldElement {
+    type Output = FieldElement;
+
+    fn neg(self) -> FieldElement {
+        let value = (-self.value).modulo(self.p);
+        FieldElement { value, p: self.p }
     }
 }
 
@@ -287,6 +312,27 @@ mod tests {
         let p = Point::Coordinate { x: 0., y: 1. };
         let n = 2;
         let r = Point::Coordinate { x: 2.25, y: 2.375 };
+        assert_eq!(curve.naive_mul(p, n), r);
+    }
+
+    #[test]
+    fn ecc_over_finite_field() {
+        let field = Field::new(97);
+        let curve = Curve { a: field.elem(2), b: field.elem(3) };
+
+        let p = Point::Coordinate { x: field.elem(17), y: field.elem(10) };
+        let q = Point::Coordinate { x: field.elem(95), y: field.elem(31) };
+        let r = Point::Coordinate { x: field.elem(1), y: field.elem(54) };
+        assert_eq!(curve.add(p, q), r);
+
+        let p = Point::Coordinate { x: field.elem(11), y: field.elem(17) };
+        let q = Point::Coordinate { x: field.elem(95), y: field.elem(31) };
+        let r = Point::Coordinate { x: field.elem(53), y: field.elem(73) };
+        assert_eq!(curve.add(p, q), r);
+
+        let p = Point::Coordinate { x: field.elem(3), y: field.elem(6) };
+        let n = 2;
+        let r = Point::Coordinate { x: field.elem(80), y: field.elem(10) };
         assert_eq!(curve.naive_mul(p, n), r);
     }
 }
