@@ -65,6 +65,10 @@ enum Point<T> {
 }
 
 impl<T: Copy + Neg<Output=T>> Point<T> {
+    fn coord(x: T, y: T) -> Point<T> {
+        Point::Coordinate { x, y }
+    }
+
     fn inverse(&self) -> Point<T> {
         match *self {
             Point::Infinity => Point::Infinity,
@@ -334,5 +338,18 @@ mod tests {
         let n = 2;
         let r = Point::Coordinate { x: field.elem(80), y: field.elem(10) };
         assert_eq!(curve.naive_mul(p, n), r);
+    }
+
+    #[test]
+    fn ecc_cyclic() {
+        let field = Field::new(97);
+        let curve = Curve { a: field.elem(2), b: field.elem(3) };
+
+        for i in 0..12 {
+            let coord = Point::coord(field.elem(3), field.elem(6));
+            println!("{}: {:?}", i, curve.naive_mul(coord, i));
+        }
+
+        assert!(false);
     }
 }

@@ -4,10 +4,13 @@
 extern crate base64;
 extern crate openssl;
 extern crate rand;
+extern crate num_bigint;
+extern crate num_traits;
 
 mod set1;
 mod set2;
 mod set3;
 mod ecc;
+mod secp256k1;
 
 fn main() {}
