@@ -173,6 +173,21 @@ impl FieldElement {
 
         FieldElement::new(x.modulo(&self.p), self.p.clone())
     }
+
+    // Fermat's little theorem states: n**(p-1) = 1
+    // Thus the inverse can be calculated like so:
+    //   n**(-1) * 1 = n**(-1) * n**(p-1) = n**(p-2)
+    //
+    // This is significantly slower than the method using the extended euclidean algoritm but added
+    // here for documentation purposes.
+    fn slow_inverse(&self) -> FieldElement {
+        let mut inv: BigInt = BigInt::one();
+        for _ in num_iter::range(BigInt::zero(), &self.p - BigInt::from(2)) {
+            inv = (inv * &self.value).modulo(&self.p);
+        }
+
+        FieldElement::new(inv, self.p.clone())
+    }
 }
 
 impl<'a> Add<FieldElement> for &'a FieldElement {
@@ -268,6 +283,15 @@ mod tests {
     use secp256k1::{Curve, Field, Point};
     use num_traits::Num;
     use std::str::FromStr;
+
+    #[test]
+    fn field_element_inverse() {
+        let p = BigInt::from(7);
+        let field = Field::new(p);
+        let elem = field.elem(BigInt::from(254));
+
+        assert_eq!(elem.inverse(), elem.slow_inverse());
+    }
 
     #[test]
     fn secp() {

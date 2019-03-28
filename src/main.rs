@@ -6,6 +6,7 @@ extern crate openssl;
 extern crate rand;
 extern crate num_bigint;
 extern crate num_traits;
+extern crate num_iter;
 
 mod set1;
 mod set2;
