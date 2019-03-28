@@ -1,5 +1,7 @@
 use std::ops::{Add, Sub, Mul, Div, Neg};
+use num_traits::*;
 use num_bigint::{BigInt};
+use std::mem;
 
 ///
 /// Modulo that handles negative numbers, works the same as Python's `%`.
@@ -7,15 +9,15 @@ use num_bigint::{BigInt};
 /// eg: `(a + b).modulo(c)`
 ///
 pub trait ModuloSignedExt {
-    fn modulo(&self, n: Self) -> Self;
+    fn modulo(&self, n: &Self) -> Self;
 }
 
 macro_rules! modulo_signed_ext_impl {
     ($($t:ty)*) => ($(
         impl ModuloSignedExt for $t {
             #[inline]
-            fn modulo(&self, n: Self) -> Self {
-                (self % &n + &n) % &n
+            fn modulo(&self, n: &Self) -> Self {
+                (self % n + n) % n
             }
         }
     )*)
@@ -29,31 +31,26 @@ modulo_signed_ext_impl! { BigInt }
 /// This function implements the extended Euclidean
 /// algorithm and runs in O(log b) in the worst case.
 fn extended_euclidean_algorithm(a: BigInt, b: BigInt) -> (BigInt, BigInt, BigInt) {
-    let mut s = BigInt::parse_bytes(b"0", 10).unwrap();
-    let mut old_s = BigInt::parse_bytes(b"1", 10).unwrap();
+    let mut s = BigInt::zero();
+    let mut old_s = BigInt::one();
 
-    let mut t = BigInt::parse_bytes(b"0", 10).unwrap();
-    let mut old_t = BigInt::parse_bytes(b"1", 10).unwrap();
+    let mut t = BigInt::zero();
+    let mut old_t = BigInt::one();
 
     let mut r = b;
     let mut old_r = a;
 
-    let mut quotient;
-    let mut tmp;
-    while r != BigInt::parse_bytes(b"0", 10).unwrap() {
-        quotient = &old_r / &r;
+    while !r.is_zero() {
+        let quotient = &old_r / &r;
 
-        tmp = old_r;
-        old_r = r.clone();
-        r = tmp - (&quotient * r);
+        old_r -= &quotient * &r;
+        mem::swap(&mut old_r, &mut r);
 
-        tmp = old_s;
-        old_s = s.clone();
-        s = tmp - (&quotient * s);
+        old_s -= &quotient * &s;
+        mem::swap(&mut old_s, &mut s);
 
-        tmp = old_t;
-        old_t = t.clone();
-        t = tmp - (&quotient * t);
+        old_t -= &quotient * &t;
+        mem::swap(&mut old_t, &mut t);
     }
 
     (old_r, old_s, old_t)
@@ -70,8 +67,8 @@ impl Point {
         Point::Coordinate { x, y }
     }
 
-    fn inverse(self) -> Point {
-        match self {
+    fn inverse(&self) -> Point {
+        match self.clone() {
             Point::Infinity => Point::Infinity,
             Point::Coordinate { x, y } => Point::Coordinate { x, y: -y },
         }
@@ -89,31 +86,29 @@ impl Curve {
     // P + -P = 0
     // P + 0 = P = 0 + P
     // P + Q = -R
-    fn add(&self, p: Point, q: Point) -> Point {
-        if p == q.clone().inverse() {
+    fn add(&self, p: &Point, q: &Point) -> Point {
+        if p == &q.inverse() {
             return Point::Infinity;
         }
 
-        match (p.clone(), q.clone()) {
-            (Point::Infinity, _) => q,
-            (_, Point::Infinity) => p,
+        match (p, q) {
+            (Point::Infinity, _) => q.clone(),
+            (_, Point::Infinity) => p.clone(),
 
             (Point::Coordinate {x: x_p, y: y_p}, Point::Coordinate {x: x_q, y: y_q}) => {
                 // We now have two non-zero, non-symmetric points to work with
-                let m = if x_p.clone() == x_q.clone() && y_p.clone() == y_p.clone() {
-                    let three = BigInt::from(3);
-                    let two = BigInt::from(2);
-                    let x_p2 = &x_p * &x_p;
+                let m = if x_p == x_q && y_p == y_p {
+                    let x_p2 = x_p * x_p;
                     // Slope calculation is different when points are equal
-                    (&x_p2.int_mul(three) + &self.a) / y_p.int_mul(two)
+                    (x_p2 * BigInt::from(3) + &self.a) / (y_p * BigInt::from(2))
                 } else {
-                    (&y_p - &y_q) / (&x_p - &x_q)
+                    (y_p - y_q) / (x_p - x_q)
                 };
 
                 // Intersection of points
                 let m2 = &m * &m;
-                let x_r = m2 - x_p.clone() - x_q.clone();
-                let y_r = y_q + (m * (x_r.clone() - x_q.clone()));
+                let x_r = m2 - x_p - x_q;
+                let y_r = y_q + (m * (&x_r - x_q));
 
                 // (x_p, y_p) + (x_q, y_q) = (x_r, -y_r)
                 Point::Coordinate { x: x_r, y: -y_r }
@@ -121,17 +116,16 @@ impl Curve {
         }
     }
 
-    // Naive implementation. Replace with double-and-add.
-    fn naive_mul(&self, p: Point, n: BigInt) -> Point {
+    fn mul(&self, p: Point, n: BigInt) -> Point {
         let mut coeff = n.clone();
         let mut current = p.clone();
         let mut result = Point::Infinity;
 
-        while coeff > BigInt::from(0) {
-            if (&coeff % BigInt::from(2)) != BigInt::from(0) {
-                result = self.add(current.clone(), result);
+        while coeff > BigInt::zero() {
+            if !(&coeff % BigInt::from(2)).is_zero() {
+                result = self.add(&current, &result);
             }
-            current = self.add(current.clone(), current.clone());
+            current = self.add(&current, &current);
             coeff >>= 1;
         }
         result
@@ -167,54 +161,44 @@ impl FieldElement {
         FieldElement { value, p }
     }
 
-    fn inverse(self) -> FieldElement {
+    fn inverse(&self) -> FieldElement {
         let (gcd, x, y) = extended_euclidean_algorithm(self.value.clone(), self.p.clone());
-        if (&self.value * &x + &self.p * y).modulo(self.p.clone()) != gcd {
+        if (&self.value * &x + &self.p * y).modulo(&self.p) != gcd {
             panic!("AHHH");
         }
 
-        if gcd != BigInt::from(1) { // Either n is 0, or p is not a prime number.
+        if !gcd.is_one() { // Either n is 0, or p is not a prime number.
             panic!("{} has no multiplicative inverse modulo {}", self.value, self.p);
         }
 
-        FieldElement::new(x.modulo(self.p.clone()), self.p.clone())
+        FieldElement::new(x.modulo(&self.p), self.p.clone())
     }
 }
 
-trait IntMul {
-    fn int_mul(self, rhs: BigInt) -> Self;
-}
-
-impl IntMul for FieldElement {
-    fn int_mul(self, val: BigInt) -> FieldElement {
-        self.clone() * FieldElement::new(val, self.p.clone())
-    }
-}
-
-impl Add for FieldElement {
+impl<'a> Add<FieldElement> for &'a FieldElement {
     type Output = FieldElement;
 
-    fn add(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value + rhs.value).modulo(rhs.p.clone());
-        FieldElement { value: BigInt::from(value), ..rhs }
+    fn add(self, mut rhs: FieldElement) -> FieldElement {
+        rhs.value = (rhs.value + &self.value).modulo(&rhs.p);
+        rhs
     }
 }
 
-impl<'a, 'b> Add<&'b FieldElement> for &'a FieldElement {
+impl<'a> Add<&'a FieldElement> for FieldElement {
     type Output = FieldElement;
 
-    fn add(self, rhs: &'b FieldElement) -> FieldElement {
-        let value = (&self.value + &rhs.value).modulo(rhs.p.clone());
-        FieldElement { value: BigInt::from(value), p: rhs.p.clone() }
+    fn add(self, rhs: &'a FieldElement) -> FieldElement {
+        let value = (self.value + &rhs.value).modulo(&rhs.p);
+        FieldElement { value, p: rhs.p.clone() }
     }
 }
 
-impl Sub for FieldElement {
+impl<'a> Sub<&'a FieldElement> for FieldElement {
     type Output = FieldElement;
 
-    fn sub(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value - rhs.value).modulo(rhs.p.clone());
-        FieldElement { value: BigInt::from(value), ..rhs }
+    fn sub(self, rhs: &'a FieldElement) -> FieldElement {
+        let value = (self.value - &rhs.value).modulo(&rhs.p);
+        FieldElement { value, p: rhs.p.clone() }
     }
 }
 
@@ -222,8 +206,7 @@ impl<'a, 'b> Sub<&'b FieldElement> for &'a FieldElement {
     type Output = FieldElement;
 
     fn sub(self, rhs: &'b FieldElement) -> FieldElement {
-        let value = (&self.value - &rhs.value).modulo(rhs.p.clone());
-        FieldElement { value: BigInt::from(value), p: rhs.p.clone() }
+        self.clone() - rhs
     }
 }
 
@@ -231,7 +214,7 @@ impl Neg for FieldElement {
     type Output = FieldElement;
 
     fn neg(self) -> FieldElement {
-        let value = (-self.value).modulo(self.p.clone());
+        let value = (-self.value).modulo(&self.p);
         FieldElement { value: BigInt::from(value), p: self.p }
     }
 }
@@ -240,7 +223,7 @@ impl Mul for FieldElement {
     type Output = FieldElement;
 
     fn mul(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value * rhs.value).modulo(rhs.p.clone());
+        let value = (self.value * rhs.value).modulo(&rhs.p);
         FieldElement { value: BigInt::from(value), p: rhs.p }
     }
 }
@@ -249,8 +232,25 @@ impl<'a, 'b> Mul<&'b FieldElement> for &'a FieldElement {
     type Output = FieldElement;
 
     fn mul(self, rhs: &'b FieldElement) -> FieldElement {
-        let value = (&self.value * &rhs.value).modulo(rhs.p.clone());
+        let value = (&self.value * &rhs.value).modulo(&rhs.p);
         FieldElement { value: BigInt::from(value), p: rhs.p.clone() }
+    }
+}
+
+impl Mul<BigInt> for FieldElement {
+    type Output = Self;
+
+    fn mul(mut self, rhs: BigInt) -> Self::Output {
+        self.value = (self.value * rhs).modulo(&self.p);
+        self
+    }
+}
+
+impl<'a> Mul<BigInt> for &'a FieldElement {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: BigInt) -> Self::Output {
+        self.clone() * rhs
     }
 }
 
@@ -277,7 +277,6 @@ mod tests {
         let x_g = BigInt::parse_bytes(b"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16).unwrap();
         let y_g = BigInt::parse_bytes(b"483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16).unwrap();
         let n = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16).unwrap();
-        // let n = BigInt::parse_bytes(b"01", 16).unwrap();
 
         let field = Field::new(p);
         let curve = Curve { a: field.elem(a), b: field.elem(b) };
@@ -428,7 +427,7 @@ mod tests {
             let expected_x = BigInt::from_str_radix(sx, 16).unwrap();
             let expected_y = BigInt::from_str_radix(sy, 16).unwrap();
 
-            let pubk = curve.naive_mul(g.clone(), k);
+            let pubk = curve.mul(g.clone(), k);
             match pubk {
                 Point::Infinity => panic!("got infinity"),
 
