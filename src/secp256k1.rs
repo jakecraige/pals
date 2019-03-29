@@ -57,7 +57,7 @@ fn extended_euclidean_algorithm(a: BigInt, b: BigInt) -> (BigInt, BigInt, BigInt
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Point {
+pub enum Point {
     Infinity,
     Coordinate { x: FieldElement, y: FieldElement }
 }
@@ -116,7 +116,7 @@ impl Curve {
         }
     }
 
-    fn mul(&self, p: Point, n: BigInt) -> Point {
+    fn mul(&self, p: &Point, n: &BigInt) -> Point {
         let mut coeff = n.clone();
         let mut current = p.clone();
         let mut result = Point::Infinity;
@@ -151,7 +151,7 @@ impl Field {
 
 /// Value within Field F_p
 #[derive(Debug, PartialEq, Clone)]
-struct FieldElement {
+pub struct FieldElement {
     value: BigInt,
     p: BigInt
 }
@@ -277,10 +277,46 @@ impl Div for FieldElement {
     }
 }
 
+pub struct Secp256k1 {
+    field: Field,
+    curve: Curve,
+    g: Point,
+    order: BigInt
+}
+
+impl Secp256k1 {
+    pub fn new() -> Self {
+        let p = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16).unwrap();
+        let a = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
+        let b = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000007", 16).unwrap();
+        let x_g = BigInt::parse_bytes(b"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16).unwrap();
+        let y_g = BigInt::parse_bytes(b"483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16).unwrap();
+        let n = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16).unwrap();
+
+        let field = Field::new(p);
+        let curve = Curve { a: field.elem(a), b: field.elem(b) };
+        let g = Point::coord(field.elem(x_g), field.elem(y_g));
+
+        Secp256k1 { field, curve, g, order: n }
+    }
+
+    pub fn mul(&self, p: &Point, n: &BigInt) -> Point {
+        self.curve.mul(p, n)
+    }
+
+    pub fn mul_g(&self, n: &BigInt) -> Point {
+        self.mul(&self.g, n)
+    }
+
+    pub fn add(&self, p: &Point, q: &Point) -> Point {
+        self.curve.add(p, q)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use num_bigint::{BigInt};
-    use secp256k1::{Curve, Field, Point};
+    use secp256k1::{Field, Point, Secp256k1};
     use num_traits::Num;
     use std::str::FromStr;
 
@@ -295,17 +331,6 @@ mod tests {
 
     #[test]
     fn secp() {
-        let p = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16).unwrap();
-        let a = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
-        let b = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000007", 16).unwrap();
-        let x_g = BigInt::parse_bytes(b"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16).unwrap();
-        let y_g = BigInt::parse_bytes(b"483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16).unwrap();
-        let n = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16).unwrap();
-
-        let field = Field::new(p);
-        let curve = Curve { a: field.elem(a), b: field.elem(b) };
-        let g = Point::coord(field.elem(x_g), field.elem(y_g));
-
         // https://chuckbatson.wordpress.com/2014/11/26/secp256k1-test-vectors/
         let test_vectors = vec![
             ("1",
@@ -446,12 +471,13 @@ mod tests {
         ];
 
 
+        let curve = Secp256k1::new();
         for (sk, sx, sy) in test_vectors {
             let k = BigInt::from_str(sk).unwrap();
             let expected_x = BigInt::from_str_radix(sx, 16).unwrap();
             let expected_y = BigInt::from_str_radix(sy, 16).unwrap();
 
-            let pubk = curve.mul(g.clone(), k);
+            let pubk = curve.mul_g(&k);
             match pubk {
                 Point::Infinity => panic!("got infinity"),
 
