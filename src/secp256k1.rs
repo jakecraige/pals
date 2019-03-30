@@ -285,15 +285,19 @@ pub struct Secp256k1 {
 }
 
 impl Secp256k1 {
+    pub fn p() -> BigInt {
+        let hex = b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f";
+        BigInt::parse_bytes(hex, 16).unwrap()
+    }
+
     pub fn new() -> Self {
-        let p = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f", 16).unwrap();
         let a = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
         let b = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000007", 16).unwrap();
         let x_g = BigInt::parse_bytes(b"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16).unwrap();
         let y_g = BigInt::parse_bytes(b"483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16).unwrap();
         let n = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16).unwrap();
 
-        let field = Field::new(p);
+        let field = Field::new(Secp256k1::p());
         let curve = Curve { a: field.elem(a), b: field.elem(b) };
         let g = Point::coord(field.elem(x_g), field.elem(y_g));
 
