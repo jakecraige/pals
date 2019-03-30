@@ -315,6 +315,12 @@ impl Secp256k1 {
     pub fn add(&self, p: &Point, q: &Point) -> Point {
         self.curve.add(p, q)
     }
+
+    // Produce the public key from a provided private key. Helper method to provide more semantic
+    // API to caller.
+    pub fn pubkey(&self, private_key: &BigInt) -> Point {
+        self.mul_g(private_key)
+    }
 }
 
 #[cfg(test)]

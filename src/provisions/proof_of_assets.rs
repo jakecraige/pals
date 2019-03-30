@@ -39,6 +39,12 @@ impl ProvisionsCurve {
     pub fn add(&self, p: &Point, q: &Point) -> Point {
         self.curve.add(p, q)
     }
+
+    // Produce the public key from a provided private key. Helper method to provide more semantic
+    // API to caller.
+    pub fn pubkey(&self, private_key: &BigInt) -> Point {
+        self.mul_g(private_key)
+    }
 }
 
 // Generate a random number in Z_q for Secp256k1
@@ -57,18 +63,18 @@ struct PublicKey {
 }
 
 impl PublicKey {
-    fn new_from_privkey(private_key: BigInt, curve: &ProvisionsCurve, balance: BigInt) -> Self {
+    fn new(private_key: BigInt, public_key: Point, balance: BigInt) -> Self {
         PublicKey {
-            public_key: curve.mul_g(&private_key),
+            public_key,
             private_key: Some(private_key),
             balance
         }
     }
 
-    fn new(private_key: Option<BigInt>, balance: BigInt) -> Self {
+    fn new_from_pubkey(public_key: Point, balance: BigInt) -> Self {
         PublicKey {
-            private_key,
-            public_key: Point::Infinity, // TODO: This is very wrong :)
+            public_key,
+            private_key: None,
             balance
         }
     }
@@ -121,6 +127,10 @@ impl PublicKey {
     }
 }
 
+trait PublicKeyProof {
+    fn p(&self) -> &Point;
+}
+
 // Representation of the proof that the prover needs as part of the interactive protocol of
 // verifying it.
 #[derive(Clone)]
@@ -138,6 +148,10 @@ struct ProverPublicKeyProof {
     x_hat: BigInt
 }
 
+impl PublicKeyProof for ProverPublicKeyProof {
+    fn p(&self) -> &Point { &self.p }
+}
+
 // Representation of the proof that the verifier has from the prover publisishing it. Basically,
 // this excludes blinding factors and the private keys.
 #[derive(Clone)]
@@ -146,6 +160,10 @@ struct VerifierPublicKeyProof {
     b: Point,
     p: Point,
     l: Point,
+}
+
+impl PublicKeyProof for VerifierPublicKeyProof {
+    fn p(&self) -> &Point { &self.p }
 }
 
 // Public data:
@@ -271,24 +289,9 @@ impl ProofOfAssets {
         }
     }
 
-    // PK: The set of public keys that we generate the proof from. If we own the address the
-    // optional private_key on the struct should be set.
-    //
-    // Returns a tuple (z_assets, vec(p, v))
-    fn generate_z_assets(&self, pks: &[PublicKey]) -> (Point, Vec<(Point, BigInt)>) {
-        // 1. Generate b for all keys g*bal(y) (Assets = sum(s * bal(y)))
-        // 2. Generate commitments p=b^s * h^v where v is random value
-        // 3. Z_assets commitment = product(p) or g^Assets * h^(sum(v))
-        let mut out = Point::Infinity;
-        let mut commitments: Vec<(Point, BigInt)> = vec![];
-
-        for p in pks.iter() {
-            let (p, v) = p.commitment(&self.curve);
-            out = self.curve.add(&out, &p);
-            commitments.push((p, v));
-        }
-
-        (out, commitments)
+    // Product of p for each proof
+    fn gen_z_assets(&self, proofs: &[impl PublicKeyProof]) -> Point {
+        proofs.iter().fold(Point::Infinity, |acc, proof| self.curve.add(&acc, proof.p()))
     }
 }
 
@@ -300,17 +303,20 @@ mod tests {
     #[test]
     fn poa_public_key_b() {
         let curve = ProvisionsCurve::new();
-        let pk = PublicKey::new(Some(BigInt::from(5)), BigInt::one());
+        let (pubkey, privkey) = gen_pubkey();
+        let pk = PublicKey::new(privkey, pubkey, BigInt::one());
         assert_eq!(pk.b(&curve), curve.mul_g(&BigInt::one()));
 
-        let pk = PublicKey::new(None, BigInt::one());
+        let (pubkey, _) = gen_pubkey();
+        let pk = PublicKey::new_from_pubkey(pubkey, BigInt::one());
         assert_eq!(pk.b(&curve), curve.mul_g(&BigInt::one()));
     }
 
     #[test]
     fn poa_public_key_commitment() {
         let curve = ProvisionsCurve::new();
-        let pk = PublicKey::new(Some(BigInt::from(5)), BigInt::one());
+        let (pubkey, privkey) = gen_pubkey();
+        let pk = PublicKey::new(privkey, pubkey, BigInt::one());
 
         let (p, v) = pk.commitment(&curve);
 
@@ -321,30 +327,48 @@ mod tests {
     }
 
     #[test]
-    fn poa_z_assets() {
-        let curve = ProvisionsCurve::new();
-        let pk1 = PublicKey::new(Some(BigInt::from(5)), BigInt::one());
-        let pk2 = PublicKey::new(None, BigInt::one());
-        let poa = ProofOfAssets::new();
-
-        let (z_assets, mut commitments) = poa.generate_z_assets(&[pk1.clone(), pk2.clone()]);
-
-        let v2 = commitments.pop().unwrap().1;
-        let v1 = commitments.pop().unwrap().1;
-        let (pk1_p, _) = pk1.commitment_with_v(&curve, v1);
-        let (pk2_p, _) = pk2.commitment_with_v(&curve, v2);
-        let expected = curve.add(&pk1_p, &pk2_p);
-        assert_eq!(z_assets, expected);
-    }
-
-    #[test]
     fn poa_public_key_proof() {
         let poa = ProofOfAssets::new();
-        let pk = PublicKey::new_from_privkey(BigInt::from(2), &poa.curve, BigInt::from(2));
+        let (pubkey, privkey) = gen_pubkey();
+        let pk = PublicKey::new(privkey, pubkey, BigInt::from(2));
 
         let (prover, verifier) = poa.gen_pk_proof(&pk);
         let res = poa.verify_pk_proof(&prover, &verifier);
 
         assert_eq!(res, Ok(()));
+    }
+
+    #[derive(Clone)]
+    struct TestProof { p: Point }
+    impl TestProof {
+        fn new(p: Point) -> Self { TestProof { p } }
+    }
+    impl PublicKeyProof for TestProof {
+        fn p(&self) -> &Point { &self.p }
+    }
+
+    #[test]
+    fn poa_gen_z_assets() {
+        let (pubk1, _) = gen_rand_pubkey();
+        let proof1 = TestProof::new(pubk1);
+        let (pubk2, _) = gen_rand_pubkey();
+        let proof2 = TestProof::new(pubk2);
+        let poa = ProofOfAssets::new();
+
+        let z_assets = poa.gen_z_assets(&[proof1.clone(), proof2.clone()]);
+
+        let expected = poa.curve.add(proof1.p(), proof2.p());
+        assert_eq!(z_assets, expected);
+    }
+
+    fn gen_pubkey() -> (Point, BigInt) {
+        let privkey = BigInt::from(5);
+        (ProvisionsCurve::new().pubkey(&privkey), privkey)
+    }
+
+    fn gen_rand_pubkey() -> (Point, BigInt) {
+        let mut rng = thread_rng();
+        let privkey = rng.gen_bigint_range(&BigInt::zero(), &BigInt::from(100));
+        (ProvisionsCurve::new().pubkey(&privkey), privkey)
     }
 }
