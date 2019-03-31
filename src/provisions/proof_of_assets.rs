@@ -114,16 +114,11 @@ impl PublicKey {
         self.private_key.clone().map_or(BigInt::zero(), |privk| privk)
     }
 
-    // Generate a pedersen commitment to prove private key ownership:
-    //     l = y^s * h^t = g^x*s * h^t, where t is random
-    // Reason: y^s = g^x*s
-    //     when s=0, y^0=0, g^0=0
-    //     when s=1, y^1=y, g^x*1=g^x=y
+    // Generate a pedersen commitment of pk ownership
+    //     l = y^s * h^t, where t is random
     fn l(&self, curve: &ProvisionsCurve) -> (Point, BigInt) {
-        let x_hat = self.x_hat();
         let t = gen_rand();
-        // g^x_s * h^t
-        (curve.add(&curve.mul_g(&x_hat), &curve.mul_h(&t)), t)
+        (curve.add(&curve.mul(&self.y(), &self.s()), &curve.mul_h(&t)), t)
     }
 }
 
@@ -329,12 +324,19 @@ mod tests {
     #[test]
     fn poa_public_key_proof() {
         let poa = ProofOfAssets::new();
+
+        // Private key known
         let (pubkey, privkey) = gen_pubkey();
         let pk = PublicKey::new(privkey, pubkey, BigInt::from(2));
-
         let (prover, verifier) = poa.gen_pk_proof(&pk);
         let res = poa.verify_pk_proof(&prover, &verifier);
+        assert_eq!(res, Ok(()));
 
+        // Private key not known
+        let (pubkey, _) = gen_pubkey();
+        let pk = PublicKey::new_from_pubkey(pubkey, BigInt::from(5));
+        let (prover, verifier) = poa.gen_pk_proof(&pk);
+        let res = poa.verify_pk_proof(&prover, &verifier);
         assert_eq!(res, Ok(()));
     }
 
