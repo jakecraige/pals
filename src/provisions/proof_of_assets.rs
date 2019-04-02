@@ -1,5 +1,6 @@
-use secp256k1::{Secp256k1, Point, ModuloSignedExt};
+use secp256k1::{Secp256k1, Point};
 use num_bigint::{BigInt, RandBigInt};
+use num_integer::{Integer};
 use rand::{thread_rng};
 use num_traits::*;
 
@@ -347,19 +348,19 @@ impl ProofOfAssets {
         // Prover
         let q = &Secp256k1::order();
         // This version is closer to bbunz's and highlights what's happening here better
-        // let c_t = (&c - &c_f).modulo(q);
+        // let c_t = (&c - &c_f).mod_floor(q);
         // if has_privkey {
-            // r_0 = (&u_0 + (&c_f * y)).modulo(q);
-            // r_1 = (&u_1 + (&c_t * y)).modulo(q);
+            // r_0 = (&u_0 + (&c_f * y)).mod_floor(q);
+            // r_1 = (&u_1 + (&c_t * y)).mod_floor(q);
         // } else {
-            // r_0 = (&u_0 + (&c_t * y)).modulo(q);
-            // r_1 = (&u_1 + (&c_f * y)).modulo(q);
+            // r_0 = (&u_0 + (&c_t * y)).mod_floor(q);
+            // r_1 = (&u_1 + (&c_f * y)).mod_floor(q);
         // }
         let mut c_1: BigInt = (x * (&c - &c_f)) + ((1 - x) * &c_f);
-        c_1 = c_1.modulo(q);
+        c_1 = c_1.mod_floor(q);
         let (r_0, r_1) = (
-            (u_0 + ((&c - &c_1) * y)).modulo(q),
-            (u_1 + (&c_1 * y)).modulo(q)
+            (u_0 + ((&c - &c_1) * y)).mod_floor(q),
+            (u_1 + (&c_1 * y)).mod_floor(q)
         );
 
         // Verifier
@@ -412,9 +413,9 @@ impl ProofOfAssets {
         if has_privkey {
             a_0 = curve.sub(&curve.mul_h(&u_0), &curve.mul_g(&c_f));
             a_1 = curve.mul_h(&u_1);
-            c_1 = (&c - &c_f).modulo(q);
-            r_0 = (&u_0 - (&c_f * y)).modulo(q);
-            r_1 = (&u_1 + (&c - &c_f) * y).modulo(q);
+            c_1 = (&c - &c_f).mod_floor(q);
+            r_0 = (&u_0 - (&c_f * y)).mod_floor(q);
+            r_1 = (&u_1 + (&c - &c_f) * y).mod_floor(q);
             println!("u_0: {}, cf: {}, y: {}", u_1, c_f, y);
             println!("c1: {}, r0: {}, r1: {}", c_1, r_0, r_1);
         } else {

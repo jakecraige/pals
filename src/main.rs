@@ -7,6 +7,7 @@ extern crate rand;
 extern crate num_bigint;
 extern crate num_traits;
 extern crate num_iter;
+extern crate num_integer;
 extern crate sha2;
 
 mod set1;

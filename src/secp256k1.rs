@@ -1,28 +1,8 @@
 use std::ops::{Add, Sub, Mul, Div, Neg};
 use num_traits::*;
+use num_integer::{Integer};
 use num_bigint::{BigInt};
 use std::mem;
-
-///
-/// Modulo that handles negative numbers, works the same as Python's `%`.
-///
-/// eg: `(a + b).modulo(c)`
-///
-pub trait ModuloSignedExt {
-    fn modulo(&self, n: &Self) -> Self;
-}
-
-macro_rules! modulo_signed_ext_impl {
-    ($($t:ty)*) => ($(
-        impl ModuloSignedExt for $t {
-            #[inline]
-            fn modulo(&self, n: &Self) -> Self {
-                (self % n + n) % n
-            }
-        }
-    )*)
-}
-modulo_signed_ext_impl! { BigInt }
 
 /// Returns a three-tuple (gcd, x, y) such that
 /// a * x + b * y == gcd, where gcd is the greatest
@@ -162,16 +142,12 @@ pub struct FieldElement {
 
 impl FieldElement {
     fn new(value: BigInt, p: BigInt) -> FieldElement {
-        // if value > p {
-            // panic!("unexpected value")
-        // }
-        FieldElement { value: value.modulo(&p), p }
-        // FieldElement { value, p }
+        FieldElement { value: value.mod_floor(&p), p }
     }
 
     pub fn inverse(&self) -> FieldElement {
         let (gcd, x, y) = extended_euclidean_algorithm(self.value.clone(), self.p.clone());
-        if (&self.value * &x + &self.p * y).modulo(&self.p) != gcd {
+        if (&self.value * &x + &self.p * y).mod_floor(&self.p) != gcd {
             panic!("AHHH");
         }
 
@@ -179,7 +155,7 @@ impl FieldElement {
             panic!("{} has no multiplicative inverse modulo {}", self.value, self.p);
         }
 
-        FieldElement::new(x.modulo(&self.p), self.p.clone())
+        FieldElement::new(x, self.p.clone())
     }
 
     // Fermat's little theorem states: n**(p-1) = 1
@@ -191,7 +167,7 @@ impl FieldElement {
     fn slow_inverse(&self) -> FieldElement {
         let mut inv: BigInt = BigInt::one();
         for _ in num_iter::range(BigInt::zero(), &self.p - BigInt::from(2)) {
-            inv = (inv * &self.value).modulo(&self.p);
+            inv = (inv * &self.value).mod_floor(&self.p);
         }
 
         FieldElement::new(inv, self.p.clone())
@@ -202,7 +178,7 @@ impl<'a> Add<FieldElement> for &'a FieldElement {
     type Output = FieldElement;
 
     fn add(self, mut rhs: FieldElement) -> FieldElement {
-        rhs.value = (rhs.value + &self.value).modulo(&rhs.p);
+        rhs.value = (rhs.value + &self.value).mod_floor(&rhs.p);
         rhs
     }
 }
@@ -211,7 +187,7 @@ impl<'a> Add<&'a FieldElement> for FieldElement {
     type Output = FieldElement;
 
     fn add(self, rhs: &'a FieldElement) -> FieldElement {
-        let value = (self.value + &rhs.value).modulo(&rhs.p);
+        let value = (self.value + &rhs.value).mod_floor(&rhs.p);
         FieldElement { value, p: rhs.p.clone() }
     }
 }
@@ -220,7 +196,7 @@ impl<'a> Sub<&'a FieldElement> for FieldElement {
     type Output = FieldElement;
 
     fn sub(self, rhs: &'a FieldElement) -> FieldElement {
-        let value = (self.value - &rhs.value).modulo(&rhs.p);
+        let value = (self.value - &rhs.value).mod_floor(&rhs.p);
         FieldElement { value, p: rhs.p.clone() }
     }
 }
@@ -237,7 +213,7 @@ impl Neg for FieldElement {
     type Output = FieldElement;
 
     fn neg(self) -> FieldElement {
-        let value = (-self.value).modulo(&self.p);
+        let value = (-self.value).mod_floor(&self.p);
         FieldElement { value: BigInt::from(value), p: self.p }
     }
 }
@@ -246,7 +222,7 @@ impl Mul for FieldElement {
     type Output = FieldElement;
 
     fn mul(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value * rhs.value).modulo(&rhs.p);
+        let value = (self.value * rhs.value).mod_floor(&rhs.p);
         FieldElement { value: BigInt::from(value), p: rhs.p }
     }
 }
@@ -255,7 +231,7 @@ impl<'a, 'b> Mul<&'b FieldElement> for &'a FieldElement {
     type Output = FieldElement;
 
     fn mul(self, rhs: &'b FieldElement) -> FieldElement {
-        let value = (&self.value * &rhs.value).modulo(&rhs.p);
+        let value = (&self.value * &rhs.value).mod_floor(&rhs.p);
         FieldElement { value: BigInt::from(value), p: rhs.p.clone() }
     }
 }
@@ -264,7 +240,7 @@ impl Mul<BigInt> for FieldElement {
     type Output = Self;
 
     fn mul(mut self, rhs: BigInt) -> Self::Output {
-        self.value = (self.value * rhs).modulo(&self.p);
+        self.value = (self.value * rhs).mod_floor(&self.p);
         self
     }
 }
