@@ -67,7 +67,7 @@ impl Point {
         Point::Coordinate { x, y }
     }
 
-    fn inverse(&self) -> Point {
+    pub fn inverse(&self) -> Point {
         match self.clone() {
             Point::Infinity => Point::Infinity,
             Point::Coordinate { x, y } => Point::Coordinate { x, y: -y },
@@ -120,6 +120,10 @@ impl Curve {
         let mut coeff = n.clone();
         let mut current = p.clone();
         let mut result = Point::Infinity;
+
+        if n < &BigInt::zero() {
+            panic!("Unexpected multiply by negative number");
+        }
 
         while coeff > BigInt::zero() {
             if !(&coeff % BigInt::from(2)).is_zero() {
@@ -290,13 +294,18 @@ impl PartialEq<usize> for FieldElement {
 pub struct Secp256k1 {
     field: Field,
     curve: Curve,
-    g: Point,
+    pub g: Point,
     order: BigInt
 }
 
 impl Secp256k1 {
     pub fn p() -> BigInt {
         let hex = b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f";
+        BigInt::parse_bytes(hex, 16).unwrap()
+    }
+
+    pub fn order() -> BigInt {
+        let hex = b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141";
         BigInt::parse_bytes(hex, 16).unwrap()
     }
 

@@ -1,4 +1,4 @@
-use secp256k1::{Secp256k1, Point};
+use secp256k1::{Secp256k1, Point, ModuloSignedExt};
 use num_bigint::{BigInt, RandBigInt};
 use rand::{thread_rng};
 use num_traits::*;
@@ -40,10 +40,18 @@ impl ProvisionsCurve {
         self.curve.add(p, q)
     }
 
+    pub fn sub(&self, p: &Point, q: &Point) -> Point {
+        self.curve.add(p, &q.inverse())
+    }
+
     // Produce the public key from a provided private key. Helper method to provide more semantic
     // API to caller.
     pub fn pubkey(&self, private_key: &BigInt) -> Point {
         self.mul_g(private_key)
+    }
+
+    fn g(&self) -> &Point {
+        &self.curve.g
     }
 }
 
@@ -51,8 +59,8 @@ impl ProvisionsCurve {
 fn gen_rand() -> BigInt {
     let mut rng = thread_rng();
     // NOTE: To speed up test runs, you can use a smaller value like the example below:
-    //       rng.gen_bigint_range(&BigInt::zero(), &BigInt::from(100))
-    rng.gen_bigint_range(&BigInt::zero(), &Secp256k1::p())
+    rng.gen_bigint_range(&BigInt::zero(), &BigInt::from(100))
+    // rng.gen_bigint_range(&BigInt::zero(), &Secp256k1::order())
 }
 
 #[derive(Clone)]
@@ -103,9 +111,10 @@ impl PublicKey {
     // Just a helper for testing to create the commitment with a specific value
     fn commitment_with_v(&self, curve: &ProvisionsCurve, v: BigInt) -> (Point, BigInt) {
         // p = b^s * h^v
-        let b_s = curve.mul(&self.b(&curve), &self.s());
-        let h_v = curve.mul_h(&v);
-        let p = curve.add(&b_s, &h_v);
+        let p = curve.add(
+            &curve.mul(&self.b(&curve), &self.s()),
+            &curve.mul_h(&v)
+        );
 
         (p, v)
     }
@@ -288,6 +297,156 @@ impl ProofOfAssets {
     fn gen_z_assets(&self, proofs: &[impl PublicKeyProof]) -> Point {
         proofs.iter().fold(Point::Infinity, |acc, proof| self.curve.add(&acc, proof.p()))
     }
+
+    // Interactive protocol for verifying a pedersen commitment (g, h, l = g^x*h^y).
+    //
+    // We want to verify the commitment to the secret which is: l = y^s * h^t
+    // So for this method x=s and y=t.
+    //   s and t are only known to the prover.
+    //
+    // 1) Prover selects u_0, u_1, c_f randomly from Z_q and produces:
+    //     a_0 = h^u_0 * g^(-x*c_f),
+    //     a_1 = h^u_1 * g^((1-x)*c_f)
+    //
+    // 2) Verify sends challenge c from Z_q and
+    // 3) Prover computes:
+    //     c_1 = x * (c - c_f) + (1 - x) * c_f
+    //     r_0 = u_0 + (c - c_1) * y
+    //     r_1 = u_1 + c_1 * y
+    //     Sends (c_1, r_0, r_1) to verifier
+    // 4) Verifier accepts if:
+    //     h^r_0 = a_0(l)^(c-c_1)
+    //     h^r_1 = a_1(lg^-1)^c_1
+    fn xverify_binary_commitment(&self, prover_proof: &ProverPublicKeyProof, verifier_proof: &VerifierPublicKeyProof) -> Result<(), &str> {
+        let curve = &self.curve;
+        let x = &prover_proof.s;
+        let y = &prover_proof.t;
+        let has_privkey = x == &BigInt::one();
+
+        println!("x: {}", x);
+
+        // Prover
+        // https://github.com/bbuenz/provisions/blob/b51530db630bc5bddf30bbae0f3d5c99a755649a/src/main/java/edu/stanford/crypto/proof/binary/BinaryProofSystem.java
+        let (u_0, u_1, c_f) = (gen_rand(), gen_rand(), gen_rand());
+        let mut a_0 = curve.mul_h(&u_0);
+        let mut a_1 = curve.mul_h(&u_1);
+        if has_privkey {
+            a_0 = curve.add(&a_0, &curve.mul_g(&(-&c_f)));
+        } else {
+            a_1 = curve.add(&a_1, &curve.mul_g(&c_f));
+        }
+        // This code should output the same value as above but does a few more operations
+        // let (a_0, a_1) = (
+            // curve.add(&curve.mul_h(&u_0), &curve.mul_g(&(-x * &c_f))), // a_0 = h^u_0 * g^(-x*c_f),
+            // curve.add(&curve.mul_h(&u_1), &curve.mul_g(&((1-x) * &c_f)))
+        // );
+
+        // Verifier
+        let c = gen_rand();
+
+        // Prover
+        let q = &Secp256k1::order();
+        // This version is closer to bbunz's and highlights what's happening here better
+        // let c_t = (&c - &c_f).modulo(q);
+        // if has_privkey {
+            // r_0 = (&u_0 + (&c_f * y)).modulo(q);
+            // r_1 = (&u_1 + (&c_t * y)).modulo(q);
+        // } else {
+            // r_0 = (&u_0 + (&c_t * y)).modulo(q);
+            // r_1 = (&u_1 + (&c_f * y)).modulo(q);
+        // }
+        let mut c_1: BigInt = (x * (&c - &c_f)) + ((1 - x) * &c_f);
+        c_1 = c_1.modulo(q);
+        let (r_0, r_1) = (
+            (u_0 + ((&c - &c_1) * y)).modulo(q),
+            (u_1 + (&c_1 * y)).modulo(q)
+        );
+
+        // Verifier
+        //
+        // statement = h^t (if secret) + g
+        //
+        // ECPoint zeroClaim = proof.getStatement().multiply(proof.getChallengeZero());
+        // ECPoint a0 = data.getH().multiply(proof.getResponseZero()).subtract(zeroClaim);
+        // 
+        // ECPoint oneClaim = proof.getStatement().subtract(data.getG()).multiply(proof.getChallengeOne());
+        // ECPoint a1 = data.getH().multiply(proof.getResponseOne()).subtract(oneClaim);
+        //
+        // BigInteger computedChallenge = ProofUtils.computeChallenge(data.getG(), data.getH(), proof.getStatement(), a0, a1);
+        // BigInteger transmittedChallenge = proof.getChallengeZero().add(proof.getChallengeOne()).mod(ECConstants.CHALLENGE_Q);
+        let l = &verifier_proof.l;
+        let (h_r_0, a_0l) = (
+            curve.mul_h(&r_0),
+            curve.add(&a_0, &curve.mul(l, &(c-&c_1)))
+        );
+        let (h_r_1, a_1l) = (
+            curve.mul_h(&r_1),
+            curve.add(&a_1, &curve.mul(&curve.add(l, &curve.g().inverse()), &c_1))
+        );
+        let p1 = h_r_0 == a_0l; // h^r_0 = a_0(l)^(c-c_1)
+        let p2 = h_r_1 == a_1l; // h^r_1 = a_1(lg^-1)^c_1
+        println!("p1: {}, p2: {}", p1, p2);
+
+        if p1 {
+            if p2 {
+                Ok(())
+            }  else {
+                Err("Unable to verify proof part 2")
+            }
+        } else {
+            Err("Unable to verify proof part 1")
+        }
+    }
+
+    fn verify_binary_commitment(&self, prover_proof: &ProverPublicKeyProof, verifier_proof: &VerifierPublicKeyProof) -> Result<(), &str> {
+        let curve = &self.curve;
+        let x = &prover_proof.s;
+        let y = &prover_proof.t;
+        let has_privkey = x == &BigInt::one();
+
+        let (u_0, u_1, c_f) = (gen_rand(), gen_rand(), gen_rand());
+        let c = gen_rand(); // Verifier
+
+        let (a_0, a_1, c_1, r_0, r_1);
+        let q = &Secp256k1::order();
+        if has_privkey {
+            a_0 = curve.sub(&curve.mul_h(&u_0), &curve.mul_g(&c_f));
+            a_1 = curve.mul_h(&u_1);
+            c_1 = (&c - &c_f).modulo(q);
+            r_0 = (&u_0 - (&c_f * y)).modulo(q);
+            r_1 = (&u_1 + (&c - &c_f) * y).modulo(q);
+            println!("u_0: {}, cf: {}, y: {}", u_1, c_f, y);
+            println!("c1: {}, r0: {}, r1: {}", c_1, r_0, r_1);
+        } else {
+            a_0 = curve.mul_h(&u_0);
+            a_1 = curve.add(&curve.mul_h(&u_1), &curve.mul_g(&c_f));
+            c_1 = c_f.clone();
+            r_0 = &u_0 + (&c - &c_f) * y;
+            r_1 = &u_1 + &c_f * y;
+        }
+
+        // Verify
+        let l = &verifier_proof.l;
+        let lhs1 = curve.mul_h(&r_0);
+        let rhs1 = curve.add(&a_0, &curve.mul(l, &(&c - &c_1)));
+        let p1 = lhs1 == rhs1;
+
+        let lhs2 = curve.mul_h(&r_1);
+        let rhs2 = curve.add(&a_1, &curve.mul(&curve.sub(l, &curve.g()), &c_1));
+        let p2 = lhs2 == rhs2;
+
+        println!("p1: {}, p2: {}", p1, p2);
+
+        if p1 {
+            if p2 {
+                Ok(())
+            }  else {
+                Err("Unable to verify proof part 2")
+            }
+        } else {
+            Err("Unable to verify proof part 1")
+        }
+    }
 }
 
 
@@ -361,6 +520,23 @@ mod tests {
 
         let expected = poa.curve.add(proof1.p(), proof2.p());
         assert_eq!(z_assets, expected);
+    }
+
+    #[test]
+    fn poa_verify_binary_commitment() {
+        let poa = ProofOfAssets::new();
+        let (pubkey, privkey) = gen_pubkey();
+        let pk = PublicKey::new(privkey, pubkey, BigInt::from(5));
+        // let (pubkey, _) = gen_pubkey();
+        // let pk = PublicKey::new_from_pubkey(pubkey, BigInt::from(5));
+        let (prover, verifier) = poa.gen_pk_proof(&pk);
+
+        let res = poa.verify_binary_commitment(&prover, &verifier);
+
+        // TODO: This is currently failing in two ways:
+        //      When privkey is known, p1 and p2 fail
+        //      When privkey is not known, p1 and p2 pass
+        assert_eq!(res, Ok(()));
     }
 
     fn gen_pubkey() -> (Point, BigInt) {
