@@ -14,5 +14,6 @@ mod set3;
 mod ecc;
 mod secp256k1;
 mod provisions;
+mod ecdsa;
 
 fn main() {}

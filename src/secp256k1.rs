@@ -135,16 +135,16 @@ impl Curve {
 
 /// Finite field over p
 #[derive(Debug, PartialEq, Clone)]
-struct Field {
+pub struct Field {
     p: BigInt
 }
 
 impl Field {
-    fn new(p: BigInt) -> Field {
+    pub fn new(p: BigInt) -> Field {
         Field { p }
     }
 
-    fn elem(&self, value: BigInt) -> FieldElement {
+    pub fn elem(&self, value: BigInt) -> FieldElement {
         FieldElement::new(value, self.p.clone())
     }
 }
@@ -152,16 +152,20 @@ impl Field {
 /// Value within Field F_p
 #[derive(Debug, PartialEq, Clone)]
 pub struct FieldElement {
-    value: BigInt,
+    pub value: BigInt,
     p: BigInt
 }
 
 impl FieldElement {
     fn new(value: BigInt, p: BigInt) -> FieldElement {
-        FieldElement { value, p }
+        // if value > p {
+            // panic!("unexpected value")
+        // }
+        FieldElement { value: value.modulo(&p), p }
+        // FieldElement { value, p }
     }
 
-    fn inverse(&self) -> FieldElement {
+    pub fn inverse(&self) -> FieldElement {
         let (gcd, x, y) = extended_euclidean_algorithm(self.value.clone(), self.p.clone());
         if (&self.value * &x + &self.p * y).modulo(&self.p) != gcd {
             panic!("AHHH");
@@ -277,6 +281,12 @@ impl Div for FieldElement {
     }
 }
 
+impl PartialEq<usize> for FieldElement {
+    fn eq(&self, rhs: &usize) -> bool {
+        self.value == BigInt::from(rhs.clone())
+    }
+}
+
 pub struct Secp256k1 {
     field: Field,
     curve: Curve,
@@ -287,6 +297,11 @@ pub struct Secp256k1 {
 impl Secp256k1 {
     pub fn p() -> BigInt {
         let hex = b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f";
+        BigInt::parse_bytes(hex, 16).unwrap()
+    }
+
+    pub fn order() -> BigInt {
+        let hex = b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141";
         BigInt::parse_bytes(hex, 16).unwrap()
     }
 
