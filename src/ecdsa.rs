@@ -1,5 +1,6 @@
 use secp256k1::{Secp256k1, Point, Field, FieldElement};
 use num_bigint::{BigInt};
+use util::{hash256_bigint};
 
 struct Signer {
     curve: Secp256k1,
@@ -21,6 +22,11 @@ impl Signer {
         }
     }
 
+    fn sign_message(&self, message: &[u8], k: &BigInt, privkey: &BigInt) -> Sig {
+        let z = &hash256_bigint(message);
+        self.sign(z, k, privkey)
+    }
+
     fn sign(&self, z: &BigInt, k: &BigInt, privkey: &BigInt) -> Sig {
         let p = self.curve.mul_g(k);
         let r = &self.compute_r(&p);
@@ -28,7 +34,7 @@ impl Signer {
         let z = &self.elem(z);
         let privkey = &self.elem(privkey);
 
-        // TODO: low-s value preferred by Bitcoin. Reduce S further
+        // TODO: low-s value preferred by Bitcoin. Reduce S further if > subgroup order/2
         let s = k.inverse() * (z + (r * privkey));
         if s == 0 { panic!("s was 0. Choose another k.") }
 
@@ -79,5 +85,23 @@ mod tests {
         let signer = Signer::new();
         let sig = signer.sign(&z, &k, &privk);
         assert!(signer.verify(&sig, &pubk))
+    }
+
+    #[test]
+    fn ecdsa_sign_message_and_verify_examples() {
+        let curve = Secp256k1::new();
+        let privk = BigInt::from(12345);
+        let pubk = curve.pubkey(&privk);
+        let k = BigInt::from(1234567890);
+        let message = b"Programming Bitcoin!";
+
+        let signer = Signer::new();
+        let sig = signer.sign_message(message, &k, &privk);
+
+        let r_hex = sig.r.value.to_str_radix(16);
+        let s_hex = sig.s.value.to_str_radix(16);
+        assert_eq!(r_hex, "2b698a0f0a4041b77e63488ad48c23e8e8838dd1fb7520408b121697b782ef22");
+        assert_eq!(s_hex, "1dbc63bfef4416705e602a7b564161167076d8b20990a0f26f316cff2cb0bc1a");
+        assert!(signer.verify(&sig, &pubk));
     }
 }

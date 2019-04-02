@@ -309,11 +309,6 @@ impl Secp256k1 {
         BigInt::parse_bytes(hex, 16).unwrap()
     }
 
-    pub fn order() -> BigInt {
-        let hex = b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141";
-        BigInt::parse_bytes(hex, 16).unwrap()
-    }
-
     pub fn new() -> Self {
         let a = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
         let b = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000007", 16).unwrap();
