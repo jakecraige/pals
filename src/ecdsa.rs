@@ -1,11 +1,8 @@
-use secp256k1::{Secp256k1, Point, Field, FieldElement};
 use num_bigint::{BigInt};
+use finite_field::{FieldElement};
+use elliptic_curve::{Point};
+use secp256k1::{Secp256k1};
 use util::{hash256_bigint};
-
-struct Signer {
-    curve: Secp256k1,
-    field: Field
-}
 
 #[derive(Debug)]
 struct Sig {
@@ -14,12 +11,13 @@ struct Sig {
     s: FieldElement  // sig
 }
 
+struct Signer {
+    curve: Secp256k1
+}
+
 impl Signer {
     fn new() -> Self {
-        Signer {
-            curve: Secp256k1::new(),
-            field: Field::new(Secp256k1::order())
-        }
+        Signer { curve: Secp256k1::new() }
     }
 
     fn sign_message(&self, message: &[u8], k: &BigInt, privkey: &BigInt) -> Sig {
@@ -65,7 +63,7 @@ impl Signer {
     }
 
     fn elem(&self, n: &BigInt) -> FieldElement {
-        self.field.elem(n.clone())
+        self.curve.subgroup_field_elem(n.clone())
     }
 }
 

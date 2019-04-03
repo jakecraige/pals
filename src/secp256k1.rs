@@ -1,302 +1,36 @@
-use std::ops::{Add, Sub, Mul, Div, Neg};
-use num_traits::*;
-use num_integer::{Integer};
 use num_bigint::{BigInt};
-use std::mem;
-
-/// Returns a three-tuple (gcd, x, y) such that
-/// a * x + b * y == gcd, where gcd is the greatest
-/// common divisor of a and b.
-///
-/// This function implements the extended Euclidean
-/// algorithm and runs in O(log b) in the worst case.
-fn extended_euclidean_algorithm(a: BigInt, b: BigInt) -> (BigInt, BigInt, BigInt) {
-    let mut s = BigInt::zero();
-    let mut old_s = BigInt::one();
-
-    let mut t = BigInt::zero();
-    let mut old_t = BigInt::one();
-
-    let mut r = b;
-    let mut old_r = a;
-
-    while !r.is_zero() {
-        let quotient = &old_r / &r;
-
-        old_r -= &quotient * &r;
-        mem::swap(&mut old_r, &mut r);
-
-        old_s -= &quotient * &s;
-        mem::swap(&mut old_s, &mut s);
-
-        old_t -= &quotient * &t;
-        mem::swap(&mut old_t, &mut t);
-    }
-
-    (old_r, old_s, old_t)
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Point {
-    Infinity,
-    Coordinate { x: FieldElement, y: FieldElement }
-}
-
-impl Point {
-    fn coord(x: FieldElement, y: FieldElement) -> Point {
-        Point::Coordinate { x, y }
-    }
-
-    pub fn inverse(&self) -> Point {
-        match self.clone() {
-            Point::Infinity => Point::Infinity,
-            Point::Coordinate { x, y } => Point::Coordinate { x, y: -y },
-        }
-    }
-}
-
-// Elliptic Curve in Weierstrass normal form: y^2 = x^3 + ax + b
-#[derive(Debug)]
-struct Curve {
-    a: FieldElement,
-    b: FieldElement
-}
-
-impl Curve {
-    // P + -P = 0
-    // P + 0 = P = 0 + P
-    // P + Q = -R
-    fn add(&self, p: &Point, q: &Point) -> Point {
-        if p == &q.inverse() {
-            return Point::Infinity;
-        }
-
-        match (p, q) {
-            (Point::Infinity, _) => q.clone(),
-            (_, Point::Infinity) => p.clone(),
-
-            (Point::Coordinate {x: x_p, y: y_p}, Point::Coordinate {x: x_q, y: y_q}) => {
-                // We now have two non-zero, non-symmetric points to work with
-                let m = if x_p == x_q && y_p == y_p {
-                    let x_p2 = x_p * x_p;
-                    // Slope calculation is different when points are equal
-                    (x_p2 * BigInt::from(3) + &self.a) / (y_p * BigInt::from(2))
-                } else {
-                    (y_p - y_q) / (x_p - x_q)
-                };
-
-                // Intersection of points
-                let m2 = &m * &m;
-                let x_r = m2 - x_p - x_q;
-                let y_r = y_q + (m * (&x_r - x_q));
-
-                // (x_p, y_p) + (x_q, y_q) = (x_r, -y_r)
-                Point::Coordinate { x: x_r, y: -y_r }
-            }
-        }
-    }
-
-    fn mul(&self, p: &Point, n: &BigInt) -> Point {
-        let mut coeff = n.clone();
-        let mut current = p.clone();
-        let mut result = Point::Infinity;
-
-        if n < &BigInt::zero() {
-            panic!("Unexpected multiply by negative number");
-        }
-
-        while coeff > BigInt::zero() {
-            if !(&coeff % BigInt::from(2)).is_zero() {
-                result = self.add(&current, &result);
-            }
-            current = self.add(&current, &current);
-            coeff >>= 1;
-        }
-        result
-    }
-}
-
-
-/// Finite field over p
-#[derive(Debug, PartialEq, Clone)]
-pub struct Field {
-    p: BigInt
-}
-
-impl Field {
-    pub fn new(p: BigInt) -> Field {
-        Field { p }
-    }
-
-    pub fn elem(&self, value: BigInt) -> FieldElement {
-        FieldElement::new(value, self.p.clone())
-    }
-}
-
-/// Value within Field F_p
-#[derive(Debug, PartialEq, Clone)]
-pub struct FieldElement {
-    pub value: BigInt,
-    p: BigInt
-}
-
-impl FieldElement {
-    fn new(value: BigInt, p: BigInt) -> FieldElement {
-        FieldElement { value: value.mod_floor(&p), p }
-    }
-
-    pub fn inverse(&self) -> FieldElement {
-        let (gcd, x, y) = extended_euclidean_algorithm(self.value.clone(), self.p.clone());
-        if (&self.value * &x + &self.p * y).mod_floor(&self.p) != gcd {
-            panic!("AHHH");
-        }
-
-        if !gcd.is_one() { // Either n is 0, or p is not a prime number.
-            panic!("{} has no multiplicative inverse modulo {}", self.value, self.p);
-        }
-
-        FieldElement::new(x, self.p.clone())
-    }
-
-    // Fermat's little theorem states: n**(p-1) = 1
-    // Thus the inverse can be calculated like so:
-    //   n**(-1) * 1 = n**(-1) * n**(p-1) = n**(p-2)
-    //
-    // This is significantly slower than the method using the extended euclidean algoritm but added
-    // here for documentation purposes.
-    fn slow_inverse(&self) -> FieldElement {
-        let mut inv: BigInt = BigInt::one();
-        for _ in num_iter::range(BigInt::zero(), &self.p - BigInt::from(2)) {
-            inv = (inv * &self.value).mod_floor(&self.p);
-        }
-
-        FieldElement::new(inv, self.p.clone())
-    }
-}
-
-impl<'a> Add<FieldElement> for &'a FieldElement {
-    type Output = FieldElement;
-
-    fn add(self, mut rhs: FieldElement) -> FieldElement {
-        rhs.value = (rhs.value + &self.value).mod_floor(&rhs.p);
-        rhs
-    }
-}
-
-impl<'a> Add<&'a FieldElement> for FieldElement {
-    type Output = FieldElement;
-
-    fn add(self, rhs: &'a FieldElement) -> FieldElement {
-        let value = (self.value + &rhs.value).mod_floor(&rhs.p);
-        FieldElement { value, p: rhs.p.clone() }
-    }
-}
-
-impl<'a> Sub<&'a FieldElement> for FieldElement {
-    type Output = FieldElement;
-
-    fn sub(self, rhs: &'a FieldElement) -> FieldElement {
-        let value = (self.value - &rhs.value).mod_floor(&rhs.p);
-        FieldElement { value, p: rhs.p.clone() }
-    }
-}
-
-impl<'a, 'b> Sub<&'b FieldElement> for &'a FieldElement {
-    type Output = FieldElement;
-
-    fn sub(self, rhs: &'b FieldElement) -> FieldElement {
-        self.clone() - rhs
-    }
-}
-
-impl Neg for FieldElement {
-    type Output = FieldElement;
-
-    fn neg(self) -> FieldElement {
-        let value = (-self.value).mod_floor(&self.p);
-        FieldElement { value: BigInt::from(value), p: self.p }
-    }
-}
-
-impl Mul for FieldElement {
-    type Output = FieldElement;
-
-    fn mul(self, rhs: FieldElement) -> FieldElement {
-        let value = (self.value * rhs.value).mod_floor(&rhs.p);
-        FieldElement { value: BigInt::from(value), p: rhs.p }
-    }
-}
-
-impl<'a, 'b> Mul<&'b FieldElement> for &'a FieldElement {
-    type Output = FieldElement;
-
-    fn mul(self, rhs: &'b FieldElement) -> FieldElement {
-        let value = (&self.value * &rhs.value).mod_floor(&rhs.p);
-        FieldElement { value: BigInt::from(value), p: rhs.p.clone() }
-    }
-}
-
-impl Mul<BigInt> for FieldElement {
-    type Output = Self;
-
-    fn mul(mut self, rhs: BigInt) -> Self::Output {
-        self.value = (self.value * rhs).mod_floor(&self.p);
-        self
-    }
-}
-
-impl<'a> Mul<BigInt> for &'a FieldElement {
-    type Output = FieldElement;
-
-    fn mul(self, rhs: BigInt) -> Self::Output {
-        self.clone() * rhs
-    }
-}
-
-impl Div for FieldElement {
-    type Output = FieldElement;
-
-    fn div(self, rhs: FieldElement) -> FieldElement {
-        self * rhs.inverse()
-    }
-}
-
-impl PartialEq<usize> for FieldElement {
-    fn eq(&self, rhs: &usize) -> bool {
-        self.value == BigInt::from(rhs.clone())
-    }
-}
+use finite_field::{Field, FieldElement};
+use elliptic_curve::{FiniteCurve, Point};
 
 pub struct Secp256k1 {
-    field: Field,
-    curve: Curve,
+    curve: FiniteCurve,
     pub g: Point,
-    order: BigInt
+    subgroup_field: Field
 }
 
 impl Secp256k1 {
+    /// P value of the Finite Field used in Secp256k1
     pub fn p() -> BigInt {
         let hex = b"fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f";
         BigInt::parse_bytes(hex, 16).unwrap()
     }
 
-    pub fn order() -> BigInt {
+    /// Order n of the subgroup used by the base generator
+    pub fn n() -> BigInt {
         let hex = b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141";
         BigInt::parse_bytes(hex, 16).unwrap()
     }
 
     pub fn new() -> Self {
-        let a = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000000", 16).unwrap();
-        let b = BigInt::parse_bytes(b"0000000000000000000000000000000000000000000000000000000000000007", 16).unwrap();
+        let a = BigInt::from(0);
+        let b = BigInt::from(7);
         let x_g = BigInt::parse_bytes(b"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16).unwrap();
         let y_g = BigInt::parse_bytes(b"483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16).unwrap();
-        let n = BigInt::parse_bytes(b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16).unwrap();
 
-        let field = Field::new(Secp256k1::p());
-        let curve = Curve { a: field.elem(a), b: field.elem(b) };
-        let g = Point::coord(field.elem(x_g), field.elem(y_g));
+        let curve = FiniteCurve::new(a, b, Secp256k1::p());
+        let g = curve.point(x_g, y_g);
 
-        Secp256k1 { field, curve, g, order: n }
+        Secp256k1 { curve, g, subgroup_field: Field::new(Secp256k1::n()) }
     }
 
     pub fn mul(&self, p: &Point, n: &BigInt) -> Point {
@@ -316,23 +50,24 @@ impl Secp256k1 {
     pub fn pubkey(&self, private_key: &BigInt) -> Point {
         self.mul_g(private_key)
     }
+
+    // Create field element within the field on the order of curve
+    pub fn field_elem(&self, n: BigInt) -> FieldElement {
+        self.curve.field_elem(n)
+    }
+
+    // Create field element within the field on the order of the subgroup
+    pub fn subgroup_field_elem(&self, n: BigInt) -> FieldElement {
+        self.subgroup_field.elem(n)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use num_bigint::{BigInt};
-    use secp256k1::{Field, Point, Secp256k1};
+    use secp256k1::{Point, Secp256k1};
     use num_traits::Num;
     use std::str::FromStr;
-
-    #[test]
-    fn field_element_inverse() {
-        let p = BigInt::from(7);
-        let field = Field::new(p);
-        let elem = field.elem(BigInt::from(254));
-
-        assert_eq!(elem.inverse(), elem.slow_inverse());
-    }
 
     #[test]
     fn secp() {

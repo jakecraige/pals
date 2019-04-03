@@ -1,8 +1,10 @@
-use secp256k1::{Secp256k1, Point};
 use num_bigint::{BigInt, RandBigInt};
 use num_integer::{Integer};
-use rand::{thread_rng};
 use num_traits::*;
+use rand::{thread_rng};
+use elliptic_curve::{Point};
+use finite_field::{FieldElement};
+use secp256k1::{Secp256k1};
 
 // Secp256k1 with g + h where h is hash of string "Provisions"
 struct ProvisionsCurve {
@@ -60,8 +62,8 @@ impl ProvisionsCurve {
 fn gen_rand() -> BigInt {
     let mut rng = thread_rng();
     // NOTE: To speed up test runs, you can use a smaller value like the example below:
-    rng.gen_bigint_range(&BigInt::zero(), &BigInt::from(100))
-    // rng.gen_bigint_range(&BigInt::zero(), &Secp256k1::order())
+    rng.gen_bigint_range(&BigInt::one(), &BigInt::from(100))
+    // rng.gen_bigint_range(&BigInt::one(), &Secp256k1::p())
 }
 
 #[derive(Clone)]
@@ -346,7 +348,7 @@ impl ProofOfAssets {
         let c = gen_rand();
 
         // Prover
-        let q = &Secp256k1::order();
+        let q = &Secp256k1::p();
         // This version is closer to bbunz's and highlights what's happening here better
         // let c_t = (&c - &c_f).mod_floor(q);
         // if has_privkey {

@@ -14,6 +14,8 @@ mod set1;
 mod set2;
 mod set3;
 mod ecc;
+mod finite_field;
+mod elliptic_curve;
 mod secp256k1;
 mod provisions;
 mod ecdsa;
