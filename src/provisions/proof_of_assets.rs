@@ -1,8 +1,9 @@
 use num_bigint::{BigInt, RandBigInt};
+use rand::{thread_rng};
+// use num_bigint::{BigInt};
 use num_integer::{Integer};
 use num_traits::*;
-use rand::{thread_rng};
-use elliptic_curve::{Point};
+use elliptic_curve::{Point, CurveOperation};
 use finite_field::{FieldElement};
 use secp256k1::{Secp256k1};
 
@@ -47,6 +48,10 @@ impl ProvisionsCurve {
         self.curve.add(p, &q.inverse())
     }
 
+    pub fn with(&self, p: &Point) -> CurveOperation {
+        self.curve.with(p)
+    }
+
     // Produce the public key from a provided private key. Helper method to provide more semantic
     // API to caller.
     pub fn pubkey(&self, private_key: &BigInt) -> Point {
@@ -55,6 +60,10 @@ impl ProvisionsCurve {
 
     fn g(&self) -> &Point {
         &self.curve.g
+    }
+
+    fn field_elem(&self, n: BigInt) -> FieldElement {
+        self.curve.field_elem(n)
     }
 }
 
@@ -404,39 +413,66 @@ impl ProofOfAssets {
     fn verify_binary_commitment(&self, prover_proof: &ProverPublicKeyProof, verifier_proof: &VerifierPublicKeyProof) -> Result<(), &str> {
         let curve = &self.curve;
         let x = &prover_proof.s;
-        let y = &prover_proof.t;
+        let y = curve.field_elem(prover_proof.t.clone());
         let has_privkey = x == &BigInt::one();
 
         let (u_0, u_1, c_f) = (gen_rand(), gen_rand(), gen_rand());
         let c = gen_rand(); // Verifier
 
         let (a_0, a_1, c_1, r_0, r_1);
-        let q = &Secp256k1::order();
+        let c = curve.field_elem(c);
+        let u_0 = curve.field_elem(u_0);
+        let u_1 = curve.field_elem(u_1);
+        let c_f = curve.field_elem(c_f);
         if has_privkey {
-            a_0 = curve.sub(&curve.mul_h(&u_0), &curve.mul_g(&c_f));
-            a_1 = curve.mul_h(&u_1);
-            c_1 = (&c - &c_f).mod_floor(q);
-            r_0 = (&u_0 - (&c_f * y)).mod_floor(q);
-            r_1 = (&u_1 + (&c - &c_f) * y).mod_floor(q);
+            a_0 = curve.sub(&curve.mul_h(&u_0.value), &curve.mul_g(&c_f.value));
+            a_1 = curve.mul_h(&u_1.value);
+            c_1 = &c - &c_f;
+            r_0 = &u_0 + &c_f * &y;
+            r_1 = &u_1 + (&(&c - &c_f) * &y);
             println!("u_0: {}, cf: {}, y: {}", u_1, c_f, y);
             println!("c1: {}, r0: {}, r1: {}", c_1, r_0, r_1);
         } else {
-            a_0 = curve.mul_h(&u_0);
-            a_1 = curve.add(&curve.mul_h(&u_1), &curve.mul_g(&c_f));
+            a_0 = curve.mul_h(&u_0.value);
+            a_1 = curve.add(&curve.mul_h(&u_1.value), &curve.mul_g(&c_f.value));
             c_1 = c_f.clone();
-            r_0 = &u_0 + (&c - &c_f) * y;
-            r_1 = &u_1 + &c_f * y;
+            r_0 = &u_0 + &(&c - &c_f) * &y;
+            r_1 = &u_1 + &c_f * &y;
+            println!("u_0: {}, cf: {}, y: {}", u_1, c_f, y);
+            println!("c1: {}, r0: {}, r1: {}", c_1, r_0, r_1);
         }
+
 
         // Verify
         let l = &verifier_proof.l;
-        let lhs1 = curve.mul_h(&r_0);
-        let rhs1 = curve.add(&a_0, &curve.mul(l, &(&c - &c_1)));
+        // println!("a0: {}", &a_0);
+        // println!("l: {}", &l);
+        // println!("rhs-exp: {}", &c - &c_1);
+        let lhs1 = curve.mul_h(&r_0.value);
+        // in truthy case c - (c - cf), c - c + cf = c + cf
+        // in falsy case c - (cf) = c - cf
+        let rhs1 = curve.add(&a_0, &curve.mul(l, &(&c - &c_1).value));
         let p1 = lhs1 == rhs1;
 
-        let lhs2 = curve.mul_h(&r_1);
-        let rhs2 = curve.add(&a_1, &curve.mul(&curve.sub(l, &curve.g()), &c_1));
+        let lhs2 = curve.mul_h(&r_1.value);
+
+        println!("sub: {}", curve.sub(&curve.g(), &curve.g()));
+        let g = &curve.g();
+        let rhs2 = curve.with(g)
+            .add(&g.inverse())
+            .add(&curve.mul_h(&y.value))
+            .mul(&(&c - &c_f).value)
+            .add(&curve.mul_g(&u_1.value))
+            .value;
+        let orhs2 = curve.add(&a_1, &curve.mul(&curve.sub(l, &curve.g()), &c_1.value));
+        // (lg^-1)^c_1 * a_1
+        let orhs23 = curve.with(l).add(&g.inverse()).mul(&c_1.value).add(&a_1).value;
+        println!("lhs2: {}", &lhs2);
+        println!("rhs2: {}", &rhs2);
+        println!("orhs2: {}", &orhs2);
+        println!("orhs23: {}", &orhs23);
         let p2 = lhs2 == rhs2;
+
 
         println!("p1: {}, p2: {}", p1, p2);
 
@@ -455,6 +491,8 @@ impl ProofOfAssets {
 
 #[cfg(test)]
 mod tests {
+    use num_bigint::{RandBigInt};
+    use rand::{thread_rng};
     use provisions::proof_of_assets::*;
 
     #[test]
@@ -540,6 +578,7 @@ mod tests {
         //      When privkey is known, p1 and p2 fail
         //      When privkey is not known, p1 and p2 pass
         assert_eq!(res, Ok(()));
+        assert!(false);
     }
 
     fn gen_pubkey() -> (Point, BigInt) {

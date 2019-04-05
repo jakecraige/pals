@@ -43,7 +43,7 @@ impl Signer {
         let s_inv = &sig.s.inverse();
         let u_1 = s_inv * &sig.z;
         let u_2 = s_inv * &sig.r;
-        let p = self.curve.add(&self.curve.mul_g(&u_1.value), &self.curve.mul(pubkey, &u_2.value));
+        let p = self.curve.mul_g(&u_1.value).add(&pubkey.mul(&u_2.value, &self.curve), &self.curve);
         let computed_r = self.compute_r(&p);
 
         sig.r == computed_r

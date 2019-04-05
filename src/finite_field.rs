@@ -102,6 +102,15 @@ impl fmt::Display for FieldElement {
     }
 }
 
+
+impl Add<FieldElement> for FieldElement {
+    type Output = FieldElement;
+
+    fn add(self, rhs: FieldElement) -> FieldElement {
+        self + &rhs
+    }
+}
+
 impl<'a> Add<FieldElement> for &'a FieldElement {
     type Output = FieldElement;
 
@@ -117,6 +126,14 @@ impl<'a> Add<&'a FieldElement> for FieldElement {
     fn add(self, rhs: &'a FieldElement) -> FieldElement {
         let value = (self.value + &rhs.value).mod_floor(&rhs.p);
         FieldElement { value, p: rhs.p.clone() }
+    }
+}
+
+impl Sub<FieldElement> for FieldElement {
+    type Output = FieldElement;
+
+    fn sub(self, rhs: FieldElement) -> FieldElement {
+        self - &rhs
     }
 }
 
@@ -173,10 +190,26 @@ impl Mul<BigInt> for FieldElement {
     }
 }
 
+impl<'a> Mul<&'a BigInt> for FieldElement {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: &'a BigInt) -> Self::Output {
+        self * rhs.clone()
+    }
+}
+
 impl<'a> Mul<BigInt> for &'a FieldElement {
     type Output = FieldElement;
 
     fn mul(self, rhs: BigInt) -> Self::Output {
+        self * &rhs
+    }
+}
+
+impl<'a, 'b> Mul<&'b BigInt> for &'a FieldElement {
+    type Output = FieldElement;
+
+    fn mul(self, rhs: &'b BigInt) -> Self::Output {
         self.clone() * rhs
     }
 }

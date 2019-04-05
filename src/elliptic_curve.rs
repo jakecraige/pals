@@ -1,6 +1,7 @@
 use std::fmt;
-use num_traits::*;
+use std::rc::{Rc};
 use num_bigint::{BigInt};
+use num_traits::*;
 use finite_field::{Field, FieldElement};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -21,7 +22,7 @@ impl Point {
         }
     }
 
-    pub fn add(&self, q: &Point, curve: &FiniteCurve) -> Point {
+    pub fn add(&self, q: &Point, curve: &FiniteCurvy) -> Point {
         let p = self;
         if p == &q.inverse() {
             return Point::Infinity;
@@ -36,7 +37,7 @@ impl Point {
                 let m = if x_p == x_q && y_p == y_p {
                     let x_p2 = x_p * x_p;
                     // Slope calculation is different when points are equal
-                    (x_p2 * BigInt::from(3) + &curve.a) / (y_p * BigInt::from(2))
+                    (x_p2 * BigInt::from(3) + curve.a_ref()) / (y_p * BigInt::from(2))
                 } else {
                     (y_p - y_q) / (x_p - x_q)
                 };
@@ -55,7 +56,7 @@ impl Point {
     // Multiplication implemented using the double-and-add algorithm.
     //
     // https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
-    pub fn mul<T: Into<BigInt> + Clone>(&self, n: &T, curve: &FiniteCurve) -> Point {
+    pub fn mul<T: Into<BigInt> + Clone>(&self, n: &T, curve: &FiniteCurvy) -> Point {
         let mut coeff = n.clone().into();
         let mut current = self.clone();
         let mut result = Point::Infinity;
@@ -86,11 +87,21 @@ impl fmt::Display for Point {
 
 // Elliptic Curve in Weierstrass normal form: y^2 = x^3 + ax + b
 // Defined over F_p
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FiniteCurve {
     a: FieldElement,
     b: FieldElement,
     field: Field
+}
+
+pub trait FiniteCurvy {
+    fn a_ref(&self) -> &FieldElement;
+}
+
+impl FiniteCurvy for FiniteCurve {
+    fn a_ref(&self) -> &FieldElement {
+        &self.a
+    }
 }
 
 impl FiniteCurve {
@@ -160,6 +171,44 @@ impl FiniteCurve {
         }
         result
     }
+
+    pub fn with(&self, point: &Point) -> CurveOperation {
+        CurveOperation::new(point.clone(), self.clone())
+    }
+}
+
+#[derive(Debug)]
+pub struct CurveOperation {
+    pub value: Point,
+    curve: Rc<FiniteCurve>
+}
+
+impl CurveOperation {
+    fn new(value: Point, curve: FiniteCurve) -> Self {
+        CurveOperation { value, curve: Rc::new(curve)  }
+    }
+
+    pub fn add(&self, q: &Point) -> CurveOperation {
+        let new_point = self.value.add(q, self.curve.as_ref());
+        CurveOperation { value: new_point, curve: self.curve.clone() }
+    }
+
+    pub fn mul<T: Into<BigInt> + Clone>(&self, n: &T) -> CurveOperation {
+        let new_point = self.value.mul(n, self.curve.as_ref());
+        CurveOperation { value: new_point, curve: self.curve.clone() }
+    }
+}
+
+impl fmt::Display for CurveOperation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
+impl PartialEq<Point> for CurveOperation {
+    fn eq(&self, rhs: &Point) -> bool {
+        &self.value == rhs
+    }
 }
 
 #[cfg(test)]
@@ -185,5 +234,13 @@ mod tests {
         let exp = c.point(80, 10);
         println!("res: {}, exp: {}, add: {}", res, exp, c.point(3, 6).add(&c.point(3, 6), c));
         assert_eq!(res, exp);
+    }
+
+    #[test]
+    fn elliptic_curve_point_ops() {
+        let c = &FiniteCurve::new(-7, 10, 999999);
+
+        let out = c.with(&c.point(1, 2)).add(&c.point(1, -2));
+        assert_eq!(out, Point::Infinity); // add to inverse
     }
 }

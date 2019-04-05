@@ -1,6 +1,6 @@
 use num_bigint::{BigInt};
 use finite_field::{Field, FieldElement};
-use elliptic_curve::{FiniteCurve, Point};
+use elliptic_curve::{FiniteCurve, FiniteCurvy, Point, CurveOperation};
 
 pub struct Secp256k1 {
     curve: FiniteCurve,
@@ -52,13 +52,27 @@ impl Secp256k1 {
     }
 
     // Create field element within the field on the order of curve
-    pub fn field_elem(&self, n: BigInt) -> FieldElement {
+    pub fn field_elem<T: Into<BigInt>>(&self, n: T) -> FieldElement {
         self.curve.field_elem(n)
     }
 
     // Create field element within the field on the order of the subgroup
     pub fn subgroup_field_elem(&self, n: BigInt) -> FieldElement {
         self.subgroup_field.elem(n)
+    }
+
+    pub fn with(&self, p: &Point) -> CurveOperation {
+        self.curve.with(p)
+    }
+
+    pub fn g(&self) -> Point {
+        self.g.clone()
+    }
+}
+
+impl FiniteCurvy for Secp256k1 {
+    fn a_ref(&self) -> &FieldElement {
+        self.curve.a_ref()
     }
 }
 
