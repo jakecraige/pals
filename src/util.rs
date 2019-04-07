@@ -20,19 +20,23 @@ pub fn hash256_bigint(data: &[u8]) -> BigInt {
 
 /// Convert a bigint into a 32 byte big-endian representation.
 /// We assume it's positive and not > 32 bytes and panic if those are not met.
-pub fn bigint_to_bytes32_be(num: &BigInt) -> Vec<u8> {
+pub fn bigint_to_bytes32_be(num: &BigInt, padded: bool) -> Vec<u8> {
     // We ignore the sign here and assume these are all positive values. This is true
     // on curves over F_p which is really all we care about for now.
     let (sign, mut bytes) = num.to_bytes_be();
     if sign != Sign::Plus { panic!("BigInt is negative which is not currently allowed") }
     if bytes.len() > 32 { panic!("BigInt is too large to fit within 32 bytes.") }
 
-    let mut res = Vec::with_capacity(32);
-    let num_padding_bytes = 32 - bytes.len();
-    for i in 0..num_padding_bytes { res.push(0); }
-    res.append(&mut bytes);
+    if padded {
+        let mut res = Vec::with_capacity(32);
+        let num_padding_bytes = 32 - bytes.len();
+        for i in 0..num_padding_bytes { res.push(0); }
+        res.append(&mut bytes);
+        res
+    } else {
+        bytes
+    }
 
-    res
 }
 
 #[cfg(test)]

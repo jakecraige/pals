@@ -99,8 +99,8 @@ impl Sec<Point> for Point {
             Point::Infinity => panic!("cannot encode infinity in sec"),
             Point::Coordinate { x, y } => {
                 let mut result = vec![0x04];
-                result.append(&mut bigint_to_bytes32_be(&x.value));
-                result.append(&mut bigint_to_bytes32_be(&y.value));
+                result.append(&mut bigint_to_bytes32_be(&x.value, true));
+                result.append(&mut bigint_to_bytes32_be(&y.value, true));
                 result
             }
         }
@@ -113,7 +113,7 @@ impl Sec<Point> for Point {
                 let mut result = vec![];
                 let prefix = if y.is_even() { 2 } else { 3 };
                 result.push(prefix);
-                result.append(&mut bigint_to_bytes32_be(&x.value));
+                result.append(&mut bigint_to_bytes32_be(&x.value, false));
                 result
             }
         }
@@ -121,22 +121,22 @@ impl Sec<Point> for Point {
 
     /// Decode sec encoded bytes into a Point. Supports compressed and uncompressed formats.
     fn from_sec<'a>(bytes: &'a [u8], curve: &'a FiniteCurve) -> Result<Point, String> {
-        if bytes.len() < 33 {
-            return Err(String::from("Not enough bytes. Expected at least 33"));
-        }
-
         match bytes[0] {
             2 => { // y is even
-                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..33]);
+                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..]);
                 let y = curve.solve_y(&x, true);
                 Ok(curve.point(x, y))
             },
             3 => { // y is odd
-                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..33]);
+                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..]);
                 let y = curve.solve_y(&x, false);
                 Ok(curve.point(x, y))
             },
             4 => {
+                if bytes.len() < 65 {
+                    return Err(String::from("Not enough bytes. Expected at least 65"));
+                }
+
                 let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..33]);
                 let y = BigInt::from_bytes_be(Sign::Plus, &bytes[33..65]);
                 Ok(curve.point(x, y))
@@ -354,25 +354,8 @@ mod tests {
     fn elliptic_curve_sec_compressed() {
         let c = &FiniteCurve::new(2, 3, 97);
 
-        assert_eq!(c.point(1, 2).as_sec_compressed(), vec![
-            // prefix. 2 if even, 3 if odd
-            2,
-            // x
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1
-        ]);
-
-        assert_eq!(c.point(1, 3).as_sec_compressed(), vec![
-            // prefix. 2 if even, 3 if odd
-            3,
-            // x
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1
-        ]);
+        assert_eq!(c.point(1, 2).as_sec_compressed(), vec![2, 1]);
+        assert_eq!(c.point(1, 3).as_sec_compressed(), vec![3, 1]);
     }
 
     #[test]
@@ -399,24 +382,8 @@ mod tests {
             0, 0, 0, 0, 0, 0, 0, 54
         ], &c).unwrap());
 
-        assert_eq!(c.point(1, 54), Point::from_sec(&[
-            // prefix. 2 if even, 3 if odd
-            2,
-            // x
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1
-        ], &c).unwrap());
-
-        assert_eq!(c.point(1, 45), Point::from_sec(&[
-            // prefix. 2 if even, 3 if odd
-            3,
-            // x
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1
-        ], &c).unwrap());
+        // Compressed format
+        assert_eq!(c.point(1, 54), Point::from_sec(&[2, 1], &c).unwrap());
+        assert_eq!(c.point(1, 45), Point::from_sec(&[3, 1], &c).unwrap());
     }
 }
