@@ -2,13 +2,58 @@ use num_bigint::{BigInt};
 use finite_field::{FieldElement};
 use elliptic_curve::{Point};
 use secp256k1::{Secp256k1};
-use util::{hash256_bigint};
+use util::{hash256_bigint, bigint_to_bytes32_be};
 
 #[derive(Debug)]
 struct Sig {
     z: FieldElement, // content hash
     r: FieldElement, // rand
     s: FieldElement  // sig
+}
+
+impl Sig {
+    fn new(r: FieldElement, s: FieldElement, z: FieldElement) -> Sig {
+        Sig { r, s, z }
+    }
+}
+
+// Distinguished Encoding Rules (DER) serialization
+trait Der {
+    fn as_der(&self) -> Vec<u8>;
+}
+
+// Helper function to encode a value into a marked format for der encoding
+fn der_encode_value(v: &BigInt) -> Vec<u8> {
+    let mut bytes = bigint_to_bytes32_be(v, false);
+
+    // Since DER is built to work with signed numbers but we're only dealing with unsigned, we must
+    // explicitly add a 0 byte if it's already set so that it considers it positive.
+    // Byte is 00000000
+    // 0x80 is 10000000
+    // BitAnd will be 0 unless first bit is 1.
+    if (bytes[0] & 0x80) > 0 {
+        bytes.insert(0, 0);
+    }
+
+    let mut res = vec![0x2u8];   // marker
+    res.push(bytes.len() as u8); // len of value
+    res.append(&mut bytes);      // value
+
+    res
+}
+
+impl Der for Sig {
+    // marker + sig len + r (marker, length, value) + s (marker, length, value)
+    fn as_der(&self) -> Vec<u8> {
+        let mut r_der = der_encode_value(&self.r.value);
+        let mut s_der = der_encode_value(&self.s.value);
+
+        let mut res = vec![0x30u8];  // marker
+        res.push((r_der.len() + s_der.len()) as u8);
+        res.append(&mut r_der);
+        res.append(&mut s_der);
+        res
+    }
 }
 
 struct Signer {
@@ -70,6 +115,7 @@ impl Signer {
 
 #[cfg(test)]
 mod tests {
+    use num_traits::{Num};
     use ecdsa::*;
 
     #[test]
@@ -101,5 +147,22 @@ mod tests {
         assert_eq!(r_hex, "2b698a0f0a4041b77e63488ad48c23e8e8838dd1fb7520408b121697b782ef22");
         assert_eq!(s_hex, "1dbc63bfef4416705e602a7b564161167076d8b20990a0f26f316cff2cb0bc1a");
         assert!(signer.verify(&sig, &pubk));
+    }
+
+    #[test]
+    fn ecdsa_der_serialization() {
+        let values = vec![
+            (
+                BigInt::from_str_radix("37206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6", 16).unwrap(),
+                BigInt::from_str_radix("8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap(),
+                b"0E\x02 7 j\x06\x10\x99\\X\x07I\x99\xcb\x97g\xb8z\xf4\xc4\x97\x8d\xb6\x8c\x06\xe8\xe6\xe8\x1d( G\xa7\xc6\x02!\x00\x8c\xa67Y\xc1\x15~\xbe\xae\xc0\xd0<\xec\xca\x11\x9f\xc9\xa7[\xf8\xe6\xd0\xfae\xc8A\xc8\xe2s\x8c\xda\xec"
+            )
+        ];
+
+        let curve = Secp256k1::new();
+        for (r, s, sig_bytes) in values {
+            let sig = Sig::new(curve.field_elem(r), curve.field_elem(s), curve.field_elem(1));
+            assert_eq!(sig.as_der(), &sig_bytes[..]);
+        }
     }
 }

@@ -36,7 +36,6 @@ pub fn bigint_to_bytes32_be(num: &BigInt, padded: bool) -> Vec<u8> {
     } else {
         bytes
     }
-
 }
 
 #[cfg(test)]
