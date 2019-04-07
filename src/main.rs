@@ -9,6 +9,7 @@ extern crate num_traits;
 extern crate num_iter;
 extern crate num_integer;
 extern crate sha2;
+extern crate ripemd160;
 
 mod set1;
 mod set2;
@@ -20,5 +21,7 @@ mod secp256k1;
 mod provisions;
 mod ecdsa;
 mod util;
+mod base58;
+mod bitcoin;
 
 fn main() {}

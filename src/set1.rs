@@ -119,7 +119,7 @@ fn byte_triple_to_6bit(bytes: (u8, u8, u8)) -> (u8, u8, u8, u8) {
     (p1, p2, p3, p4)
 }
 
-fn hex_decode(hex: &str) -> Vec<u8> {
+pub fn hex_decode(hex: &str) -> Vec<u8> {
     let nibs = hex_to_nibbles(hex);
     nibs_to_bytes(&nibs)
 }

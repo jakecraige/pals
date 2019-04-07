@@ -1,5 +1,6 @@
 use num_bigint::{BigInt, Sign};
-use sha2::{Digest, Sha256};
+use sha2::{Digest as Sha2Digest, Sha256};
+use ripemd160::{Ripemd160, Digest as RipemdDigest};
 
 pub fn sha256(data: &[u8]) -> Vec<u8> {
     Sha256::digest(data).to_vec()
@@ -16,6 +17,13 @@ pub fn hash256(data: &[u8]) -> Vec<u8> {
 pub fn hash256_bigint(data: &[u8]) -> BigInt {
     let h = hash256(data);
     BigInt::from_bytes_be(Sign::Plus, &h)
+}
+
+/// Hash160(x) = RIPEMD(SHA256(x))
+pub fn hash160(data: &[u8]) -> Vec<u8> {
+    let mut hasher = Ripemd160::new();
+    hasher.input(&sha256(data));
+    hasher.result().to_vec()
 }
 
 /// Convert a bigint into a 32 byte big-endian representation.
