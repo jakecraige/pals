@@ -1,8 +1,9 @@
 use std::fmt;
 use std::rc::{Rc};
-use num_bigint::{BigInt};
+use num_bigint::{BigInt, Sign};
 use num_traits::*;
 use finite_field::{Field, FieldElement};
+use util::{bigint_to_bytes32_be};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Point {
@@ -85,6 +86,66 @@ impl fmt::Display for Point {
     }
 }
 
+// Standards for Efficient Cryptography (SEC) encoding
+pub trait Sec<T> where T: Sized {
+    fn as_sec(&self) -> Vec<u8>;
+    fn as_sec_compressed(&self) -> Vec<u8>;
+    fn from_sec<'a>(bytes: &'a [u8], curve: &'a FiniteCurve) -> Result<T, String>;
+}
+
+impl Sec<Point> for Point {
+    fn as_sec(&self) -> Vec<u8> {
+        match self {
+            Point::Infinity => panic!("cannot encode infinity in sec"),
+            Point::Coordinate { x, y } => {
+                let mut result = vec![0x04];
+                result.append(&mut bigint_to_bytes32_be(&x.value));
+                result.append(&mut bigint_to_bytes32_be(&y.value));
+                result
+            }
+        }
+    }
+
+    fn as_sec_compressed(&self) -> Vec<u8> {
+        match self {
+            Point::Infinity => panic!("cannot encode infinity in sec"),
+            Point::Coordinate { x, y } => {
+                let mut result = vec![];
+                let prefix = if y.is_even() { 2 } else { 3 };
+                result.push(prefix);
+                result.append(&mut bigint_to_bytes32_be(&x.value));
+                result
+            }
+        }
+    }
+
+    /// Decode sec encoded bytes into a Point. Supports compressed and uncompressed formats.
+    fn from_sec<'a>(bytes: &'a [u8], curve: &'a FiniteCurve) -> Result<Point, String> {
+        if bytes.len() < 33 {
+            return Err(String::from("Not enough bytes. Expected at least 33"));
+        }
+
+        match bytes[0] {
+            2 => { // y is even
+                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..33]);
+                let y = curve.solve_y(&x, true);
+                Ok(curve.point(x, y))
+            },
+            3 => { // y is odd
+                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..33]);
+                let y = curve.solve_y(&x, false);
+                Ok(curve.point(x, y))
+            },
+            4 => {
+                let x = BigInt::from_bytes_be(Sign::Plus, &bytes[1..33]);
+                let y = BigInt::from_bytes_be(Sign::Plus, &bytes[33..65]);
+                Ok(curve.point(x, y))
+            },
+            prefix => Err(format!("Invalid prefix: {}", prefix))
+        }
+    }
+}
+
 // Elliptic Curve in Weierstrass normal form: y^2 = x^3 + ax + b
 // Defined over F_p
 #[derive(Debug, Clone)]
@@ -114,7 +175,7 @@ impl FiniteCurve {
         self.field.elem(n)
     }
 
-    pub fn point<T: Into<BigInt>>(&self, x: T, y: T) -> Point {
+    pub fn point<T: Into<BigInt>, P: Into<BigInt>>(&self, x: T, y: P) -> Point {
         let (x, y) = (self.field_elem(x.into()), self.field_elem(y.into()));
         // TODO: Verify point on curve
         Point::coord(x, y)
@@ -174,6 +235,27 @@ impl FiniteCurve {
 
     pub fn with(&self, point: &Point) -> CurveOperation {
         CurveOperation::new(point.clone(), self.clone())
+    }
+
+    fn solve_y(&self, x: &BigInt, is_even: bool) -> FieldElement {
+        // rhs of y^2 = x^3 + ax + 7
+        let x_3 = self.field_elem(x.pow(3 as u8));
+        let rhs = x_3 + &self.a*x + &self.b;
+        let y = rhs.sqrt();
+
+        // TODO: Understand these conditionals better since it seems like we never use the case
+        // that is calculated?
+        let (even_beta, odd_beta) = if y.is_even() {
+            (y.clone(), self.field_elem(self.field.p_ref() - &y.value))
+        } else {
+            (self.field_elem(self.field.p_ref() - &y.value), y.clone())
+        };
+
+        if is_even {
+            even_beta
+        } else {
+            odd_beta
+        }
     }
 }
 
@@ -242,5 +324,99 @@ mod tests {
 
         let out = c.with(&c.point(1, 2)).add(&c.point(1, -2));
         assert_eq!(out, Point::Infinity); // add to inverse
+    }
+
+    #[test]
+    fn elliptic_curve_sec() {
+        let c = &FiniteCurve::new(2, 3, 97);
+        let p = c.point(1, 2);
+
+        let sec = p.as_sec();
+
+        let expected: &[u8] = &[
+            // prefix
+            4,
+            // x
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1,
+            // y
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 2
+        ];
+        assert_eq!(sec, expected.to_vec());
+    }
+
+    #[test]
+    fn elliptic_curve_sec_compressed() {
+        let c = &FiniteCurve::new(2, 3, 97);
+
+        assert_eq!(c.point(1, 2).as_sec_compressed(), vec![
+            // prefix. 2 if even, 3 if odd
+            2,
+            // x
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1
+        ]);
+
+        assert_eq!(c.point(1, 3).as_sec_compressed(), vec![
+            // prefix. 2 if even, 3 if odd
+            3,
+            // x
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1
+        ]);
+    }
+
+    #[test]
+    fn elliptic_curve_from_sec() {
+        // p = 99, so that p % 4 = 3
+        let c = &FiniteCurve::new(2, 3, 99);
+        // Find starting point on curve using x =1.
+        // y^2 = x^3 + 2a + b
+        // 1 + 2 + 3 = 6, y2 = 6.. y^(p+1)/4 = y^25
+        // x = 1, y = 54
+
+        assert_eq!(c.point(1, 54), Point::from_sec(&[
+            // prefix
+            4,
+            // x
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1,
+            // y
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 54
+        ], &c).unwrap());
+
+        assert_eq!(c.point(1, 54), Point::from_sec(&[
+            // prefix. 2 if even, 3 if odd
+            2,
+            // x
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1
+        ], &c).unwrap());
+
+        assert_eq!(c.point(1, 45), Point::from_sec(&[
+            // prefix. 2 if even, 3 if odd
+            3,
+            // x
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1
+        ], &c).unwrap());
     }
 }

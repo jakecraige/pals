@@ -52,6 +52,10 @@ impl Field {
     pub fn elem<T: Into<BigInt>>(&self, value: T) -> FieldElement {
         FieldElement::new(value.into(), self.p.clone())
     }
+
+    pub fn p_ref(&self) -> &BigInt {
+        &self.p
+    }
 }
 
 /// Value within Field F_p
@@ -94,6 +98,28 @@ impl FieldElement {
 
         FieldElement::new(inv, self.p.clone())
     }
+
+    pub fn is_even(&self) -> bool {
+        &self.value & BigInt::one() == BigInt::zero()
+    }
+
+    pub fn pow(&self, n: &BigInt) -> FieldElement {
+        let val = self.value.modpow(n, &self.p);
+        FieldElement::new(val, self.p.clone())
+    }
+
+    // Only works on curves where: p % 4 = 3
+    // Derived from fact that p % 4 = 3 and a^(p-1) = 1 which gives us:
+    //
+    // w^2 = v (we know v and are looking for w)
+    // w^2 = w^2 * 1 = w^2 * w^(p-1) = w^(p+1)
+    // w^(2/2) = w^(p+1)/2
+    // w = w^(p+1)/2
+    // w = w^2(p+1)/4 = (w^2)^(p+1)/4 = v^(p+1)/4 = w
+    pub fn sqrt(&self) -> FieldElement {
+        let exp = (&self.p + 1) / 4;
+        self.pow(&exp)
+    }
 }
 
 impl fmt::Display for FieldElement {
@@ -102,6 +128,11 @@ impl fmt::Display for FieldElement {
     }
 }
 
+impl Into<BigInt> for FieldElement {
+    fn into(self) -> BigInt {
+        self.value
+    }
+}
 
 impl Add<FieldElement> for FieldElement {
     type Output = FieldElement;
@@ -266,5 +297,13 @@ mod tests {
         // division is lhs * rhs.inverse(). By using the same value we use the definition of the
         // multiplicative inverse and know the answer should be 1.
         assert_eq!(f.elem(3) / f.elem(BigInt::from(3)), 1);
+    }
+
+    #[test]
+    fn field_element_is_even() {
+        let f = Field::new(7);
+
+        assert!(f.elem(2).is_even());
+        assert!(!f.elem(3).is_even());
     }
 }
