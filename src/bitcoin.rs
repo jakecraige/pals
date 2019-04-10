@@ -1,6 +1,6 @@
 use base58::{base58check_encode};
-use elliptic_curve::{Point, Sec};
-use secp256k1::{Secp256k1};
+use elliptic_curve::{Sec};
+use secp256k1::{Point};
 use util::{hash160};
 
 fn derive_address(public_key: &Point, compressed: bool, testnet: bool) -> Vec<u8> {
@@ -17,6 +17,7 @@ fn derive_address(public_key: &Point, compressed: bool, testnet: bool) -> Vec<u8
 mod tests {
     use num_bigint::{BigInt};
     use num_traits::{Pow};
+    use secp256k1::{Secp256k1};
     use bitcoin::*;
 
     #[test]

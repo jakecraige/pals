@@ -75,6 +75,10 @@ impl Point {
         }
         result
     }
+
+    pub fn is_infinity(&self) -> bool {
+        self == &Point::Infinity
+    }
 }
 
 impl fmt::Display for Point {
@@ -87,13 +91,13 @@ impl fmt::Display for Point {
 }
 
 // Standards for Efficient Cryptography (SEC) encoding
-pub trait Sec<T> where T: Sized {
+pub trait Sec<T, C> where T: Sized, C: Sized {
     fn as_sec(&self) -> Vec<u8>;
     fn as_sec_compressed(&self) -> Vec<u8>;
-    fn from_sec<'a>(bytes: &'a [u8], curve: &'a FiniteCurve) -> Result<T, String>;
+    fn from_sec<'a>(bytes: &'a [u8], curve: &'a C) -> Result<T, String>;
 }
 
-impl Sec<Point> for Point {
+impl Sec<Point, FiniteCurve> for Point {
     fn as_sec(&self) -> Vec<u8> {
         match self {
             Point::Infinity => panic!("cannot encode infinity in sec"),

@@ -1,7 +1,6 @@
 use num_bigint::{BigInt};
 use finite_field::{FieldElement};
-use elliptic_curve::{Point};
-use secp256k1::{Secp256k1};
+use secp256k1::{Secp256k1, Point};
 use util::{hash256_bigint, bigint_to_bytes32_be};
 
 #[derive(Debug)]
@@ -71,7 +70,7 @@ impl Signer {
     }
 
     fn sign(&self, z: &BigInt, k: &BigInt, privkey: &BigInt) -> Sig {
-        let p = self.curve.mul_g(k);
+        let p = self.curve.g() * k.clone(); // hax
         let r = &self.compute_r(&p);
         let k = &self.elem(k);
         let z = &self.elem(z);
@@ -88,19 +87,14 @@ impl Signer {
         let s_inv = &sig.s.inverse();
         let u_1 = s_inv * &sig.z;
         let u_2 = s_inv * &sig.r;
-        let p = self.curve.mul_g(&u_1.value).add(&pubkey.mul(&u_2.value, &self.curve), &self.curve);
+        let p = (self.curve.g() * u_1.value) + (pubkey * u_2.value);
         let computed_r = self.compute_r(&p);
 
         sig.r == computed_r
     }
 
-    // This whole method is gross. Ideally this can be done nicer within the type system.
     fn compute_r(&self, p: &Point) -> FieldElement {
-        let xp;
-        match p {
-            Point::Infinity => panic!("expected a coordinate"),
-            Point::Coordinate { x, y } => xp = x
-        }
+        let (xp, _) = p.as_coord().expect("non-infinite point");
         let r = self.elem(&xp.value);
         if r == 0 { panic!("r was 0. Choose another k.") }
 
@@ -111,7 +105,6 @@ impl Signer {
         self.curve.subgroup_field_elem(n.clone())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

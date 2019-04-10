@@ -1,10 +1,14 @@
+use std::fmt;
+use std::rc::{Rc};
+use std::ops::{Add, Sub, Mul};
 use num_bigint::{BigInt};
 use finite_field::{Field, FieldElement};
-use elliptic_curve::{FiniteCurve, FiniteCurvy, Point, CurveOperation};
+use elliptic_curve::{FiniteCurve, FiniteCurvy, Point as ECPoint, CurveOperation, Sec};
 
+#[derive(Debug, Clone)]
 pub struct Secp256k1 {
     curve: FiniteCurve,
-    pub g: Point,
+    pub g: ECPoint,
     subgroup_field: Field
 }
 
@@ -33,22 +37,11 @@ impl Secp256k1 {
         Secp256k1 { curve, g, subgroup_field: Field::new(Secp256k1::n()) }
     }
 
-    pub fn mul(&self, p: &Point, n: &BigInt) -> Point {
-        self.curve.mul(p, n)
-    }
-
-    pub fn mul_g(&self, n: &BigInt) -> Point {
-        self.mul(&self.g, n)
-    }
-
-    pub fn add(&self, p: &Point, q: &Point) -> Point {
-        self.curve.add(p, q)
-    }
-
     // Produce the public key from a provided private key. Helper method to provide more semantic
     // API to caller.
     pub fn pubkey(&self, private_key: &BigInt) -> Point {
-        self.mul_g(private_key)
+        let point = self.curve.mul(&self.g, private_key);
+        Point::new(point, self.clone())
     }
 
     // Create field element within the field on the order of curve
@@ -61,12 +54,12 @@ impl Secp256k1 {
         self.subgroup_field.elem(n)
     }
 
-    pub fn with(&self, p: &Point) -> CurveOperation {
+    pub fn with(&self, p: &ECPoint) -> CurveOperation {
         self.curve.with(p)
     }
 
     pub fn g(&self) -> Point {
-        self.g.clone()
+        Point::new(self.g.clone(), self.clone())
     }
 }
 
@@ -76,12 +69,139 @@ impl FiniteCurvy for Secp256k1 {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Point {
+    point: ECPoint,
+    curve: Rc<Secp256k1>
+}
+
+impl Point {
+    fn new(point: ECPoint, curve: Secp256k1) -> Point {
+        Point { point, curve: Rc::new(curve) }
+    }
+
+    /// Return a new instance of the point at infinity
+    pub fn infinity() -> Point {
+        let curve = Secp256k1::new();
+        Point { point: ECPoint::Infinity, curve: Rc::new(curve) }
+    }
+
+    pub fn point_ref(&self) -> &ECPoint {
+        &self.point
+    }
+
+    pub fn inverse(&self) -> Point {
+        self.new_from_ec_point(self.point.inverse())
+    }
+
+    /// Helper method to create a new point cloning the existing curve over
+    pub fn new_from_ec_point(&self, point: ECPoint) -> Point {
+        Point { point, curve: self.curve.clone() }
+    }
+
+    /// Return the coordinates of the point iff it is not the point at infinity.
+    pub fn as_coord(&self) -> Option<(&FieldElement, &FieldElement)> {
+        match &self.point {
+            ECPoint::Infinity => None,
+            ECPoint::Coordinate { x, y } => Some((x, y))
+        }
+    }
+}
+
+impl Sec<Point, Secp256k1> for Point {
+    fn as_sec(&self) -> Vec<u8> { self.point.as_sec() }
+    fn as_sec_compressed(&self) -> Vec<u8> { self.point.as_sec_compressed() }
+
+    fn from_sec<'a>(bytes: &'a [u8], curve: &'a Secp256k1) -> Result<Point, String> {
+        let point = ECPoint::from_sec(bytes, &curve.curve)?;
+        Ok(Point::new(point, curve.clone()))
+    }
+}
+
+impl PartialEq<Point> for Point {
+    fn eq(&self, rhs: &Point) -> bool {
+        &self.point == &rhs.point
+    }
+}
+
+impl PartialEq<ECPoint> for Point {
+    fn eq(&self, rhs: &ECPoint) -> bool {
+        &self.point == rhs
+    }
+}
+
+impl Add for Point {
+    type Output = Point;
+
+    fn add(self, rhs: Point) -> Point {
+        self + &rhs
+    }
+}
+
+impl<'a> Add<&'a Point> for Point {
+    type Output = Point;
+
+    fn add(self, rhs: &'a Point) -> Point {
+        &self + rhs
+    }
+}
+
+impl<'a, 'b> Add<&'b Point> for &'a Point {
+    type Output = Point;
+
+    fn add(self, rhs: &'b Point) -> Point {
+        let new_point = self.point.add(&rhs.point, self.curve.as_ref());
+        self.new_from_ec_point(new_point)
+    }
+}
+
+impl Sub for Point {
+    type Output = Point;
+
+    fn sub(self, rhs: Point) -> Point {
+        self - &rhs
+    }
+}
+
+impl<'a> Sub<&'a Point> for Point {
+    type Output = Point;
+
+    fn sub(self, rhs: &'a Point) -> Point {
+        // Subtration is defined as adding to the inverse
+        let new_point = self.point.add(&rhs.point.inverse(), self.curve.as_ref());
+        self.new_from_ec_point(new_point)
+    }
+}
+
+impl<T: Into<BigInt> + Clone> Mul<T> for Point {
+    type Output = Point;
+
+    fn mul(self, n: T) -> Point {
+        &self * n
+    }
+}
+
+impl<'a, T: Into<BigInt> + Clone> Mul<T> for &'a Point {
+    type Output = Point;
+
+    fn mul(self, n: T) -> Point {
+        let new_point = self.point.mul(&n, self.curve.as_ref());
+        self.new_from_ec_point(new_point)
+    }
+}
+
+impl fmt::Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.point.fmt(f)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
     use num_traits::*;
     use secp256k1::*;
-    use elliptic_curve::{Point, Sec};
+    use elliptic_curve::{Point as ECPoint, Sec};
 
     #[test]
     fn secp() {
@@ -231,15 +351,10 @@ mod tests {
             let expected_x = BigInt::from_str_radix(sx, 16).unwrap();
             let expected_y = BigInt::from_str_radix(sy, 16).unwrap();
 
-            let pubk = curve.mul_g(&k);
-            match pubk {
-                Point::Infinity => panic!("got infinity"),
-
-                Point::Coordinate { x, y } => {
-                    assert_eq!(x.value.to_str_radix(16), expected_x.to_str_radix(16));
-                    assert_eq!(y.value.to_str_radix(16), expected_y.to_str_radix(16));
-                }
-            }
+            let pubk = curve.g() * k;
+            let (x, y) = pubk.as_coord().expect("not infinity");
+            assert_eq!(x.value.to_str_radix(16), expected_x.to_str_radix(16));
+            assert_eq!(y.value.to_str_radix(16), expected_y.to_str_radix(16));
         }
     }
 
@@ -270,15 +385,32 @@ mod tests {
             assert_eq!(result.len(), 65);
             assert_eq!(result, &uncompressed[..]);
 
-            let decoded = Point::from_sec(&result, &curve.curve);
+            let decoded = Point::from_sec(&result, &curve);
             assert_eq!(decoded, Ok(public_key.clone()));
 
             let result = public_key.as_sec_compressed();
             assert_eq!(result.len(), 33);
             assert_eq!(result, &compressed[..]);
 
-            let decoded = Point::from_sec(&result, &curve.curve);
+            let decoded = Point::from_sec(&result, &curve);
             assert_eq!(decoded, Ok(public_key.clone()));
         }
+    }
+
+    #[test]
+    fn secp256k1_point_add() {
+        let c = &Secp256k1::new();
+
+        assert_eq!(c.g() + c.g().inverse(), ECPoint::Infinity); // add to inverse
+        assert_eq!(c.g() + Point::infinity(), c.g()); // add to infinity
+        assert_eq!(c.g() - c.g(), ECPoint::Infinity); // sub value
+    }
+
+    #[test]
+    fn secp256k1_point_mul() {
+        let c = &Secp256k1::new();
+
+        assert_eq!(c.g() * 0, ECPoint::Infinity);
+        assert_eq!(c.g() * 1, c.g());
     }
 }
