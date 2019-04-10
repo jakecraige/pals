@@ -13,16 +13,9 @@ struct ProvisionsCurve {
 
 impl ProvisionsCurve {
     fn new() -> Self {
-        let provisions_sha256 = BigInt::from_str_radix(
-            "7982ad72bd36e6f2a1b65cc0f14a1610c7822a6d1efff818ab95a3ba1793847f",
-            16
-        ).unwrap();
-
         let curve = Secp256k1::new();
         let g = curve.g();
-        // TODO: This breaks the ZK-ness of the proof. Will need to later look up how to actually
-        // derive a point from this in a secure way.
-        let h = &g * provisions_sha256;
+        let h = curve.hash_onto_curve(b"PROVISIONS");
 
         ProvisionsCurve { curve, g, h }
     }

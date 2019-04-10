@@ -161,11 +161,16 @@ pub struct FiniteCurve {
 
 pub trait FiniteCurvy {
     fn a_ref(&self) -> &FieldElement;
+    fn b_ref(&self) -> &FieldElement;
 }
 
 impl FiniteCurvy for FiniteCurve {
     fn a_ref(&self) -> &FieldElement {
         &self.a
+    }
+
+    fn b_ref(&self) -> &FieldElement {
+        &self.b
     }
 }
 
@@ -259,6 +264,19 @@ impl FiniteCurve {
             even_beta
         } else {
             odd_beta
+        }
+    }
+
+    /// Determine whether or not the provided point is on the curve by evaluating the curve
+    /// equation
+    pub fn is_valid_point(&self, point: &Point) -> bool {
+        match &point {
+            Point::Infinity => false,
+            Point::Coordinate { x, y } => {
+                let lhs = y.pow(&BigInt::from(2));
+                let rhs = x.pow(&BigInt::from(3)) + self.a_ref() * x + self.b_ref();
+                lhs == rhs
+            },
         }
     }
 }

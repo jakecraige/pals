@@ -6,6 +6,11 @@ pub fn sha256(data: &[u8]) -> Vec<u8> {
     Sha256::digest(data).to_vec()
 }
 
+pub fn sha256_bigint(data: &[u8]) -> BigInt {
+    let h = sha256(data);
+    BigInt::from_bytes_be(Sign::Plus, &h)
+}
+
 /// Implements the Hash256 algorithm.
 ///
 /// Hash256(x) = SHA256(SHA256(x)) - two rounds of SHA-256 on data.
