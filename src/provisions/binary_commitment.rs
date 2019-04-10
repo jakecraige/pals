@@ -1,5 +1,4 @@
 use num_bigint::{BigInt};
-use num_integer::{Integer};
 use num_traits::*;
 use secp256k1::{Secp256k1, Point};
 
@@ -13,9 +12,9 @@ struct PedersenCommitment {
 impl PedersenCommitment {
     fn create_commitment<T: Into<BigInt> + Clone>(
         g: &Point, h: &Point, curve: &Secp256k1,
-        value: &T, blinding_factor: &T
+        x: &T, y: &T
     ) -> PedersenCommitment {
-        let l = g * value.clone() + h * blinding_factor.clone();
+        let l = g * x.clone() + h * y.clone();
 
         PedersenCommitment { g: g.clone(), h: h.clone(), l }
     }
@@ -37,17 +36,21 @@ impl PedersenCommitment {
     //     h^r0 = a0(l)^(c-c1)
     //     h^r1 = a1(lg^-1)^c1
     fn verify_binary_commitment(
-        comm: &PedersenCommitment,
-        value: &BigInt, blinding_factor: &BigInt, curve: &Secp256k1
+        comm: &PedersenCommitment, curve: &Secp256k1,
+        x: &BigInt, y: &BigInt,
     ) -> bool {
-        let truthy = value == &BigInt::one();
+        let truthy = x == &BigInt::one();
+
+        // NOTE: These operations are not currently done within the field and per the paper they
+        // should be. With the fixed values right now they never get large enough that the mod
+        // would change anything though.
 
         // Prover selects "random" values and challenge
         let (u0, u1, cf) = (9213, 125, 3);
         // a_0 = h^u_0 * g^(-x*c_f),
         // a_1 = h^u_1 * g^((1-x)*c_f)
-        let a0 = comm.h_ref() * u0 + comm.g_ref() * (-value * cf);
-        let a1 = comm.h_ref() * u1 + comm.g_ref() * ((1 - value) * cf);
+        let a0 = comm.h_ref() * u0 + comm.g_ref() * (-x * cf);
+        let a1 = comm.h_ref() * u1 + comm.g_ref() * ((1 - x) * cf);
 
         let c = 6; // verifier challenge
 
@@ -55,14 +58,14 @@ impl PedersenCommitment {
         // c_1 = x * (c - c_f) + (1 - x) * c_f
         // r_0 = u_0 + (c - c_1) * y
         // r_1 = u_1 + c_1 * y
-        let c1: BigInt = value * (c - cf) + (1 - value) * cf;
-        let r0 = u0 + (c - &c1) * blinding_factor;
-        let r1 = u1 + &c1 * blinding_factor;
+        let c1: BigInt = x * (c - cf) + (1 - x) * cf;
+        let r0 = u0 + (c - &c1) * y;
+        let r1 = u1 + &c1 * y;
 
         // Verifier verifies:
         // h^r_0 = a_0(l)^(c-c_1)
         // h^r_1 = a_1(lg^-1)^c_1
-        let p1 = comm.h_ref() * r0 == a0 + comm.l_ref() * (c - &c1);
+        let p1 = comm.h_ref() * r0 == a0 + (comm.l_ref() * (c - &c1));
         let p2 = comm.h_ref() * r1 == a1 + (comm.l_ref() + &comm.g_ref().inverse()) * c1.clone();
 
         println!("p1: {}, p2: {}", p1, p2);
@@ -80,21 +83,32 @@ mod tests {
     use provisions::binary_commitment::*;
 
     #[test]
-    fn pedersen_commitment_binary_verify() {
+    fn pedersen_commitment_binary_verify_falsy() {
         let curve = Secp256k1::new();
         let g = curve.g();
         let h = curve.hash_onto_curve(b"PROVISIONS");
 
-        // Verify falsy commitment
-        let val = &BigInt::from(0);
-        let bf = &BigInt::from(152131);
-        let commitment = PedersenCommitment::create_commitment(&g, &h, &curve, val, bf);
-        assert!(PedersenCommitment::verify_binary_commitment(&commitment, val, bf, &curve));
+        let x = &BigInt::from(0);
+        let y = &BigInt::from(152131);
+        let commitment = PedersenCommitment::create_commitment(&g, &h, &curve, x, y);
+        assert!(
+            PedersenCommitment::verify_binary_commitment(&commitment, &curve, x, y),
+            "commitment not able to be verified"
+        );
+    }
 
-        // Verify truthy commitment
-        let val = &BigInt::from(1);
-        let bf = &BigInt::from(12414);
-        let commitment = PedersenCommitment::create_commitment(&g, &h, &curve, val, bf);
-        assert!(PedersenCommitment::verify_binary_commitment(&commitment, val, bf, &curve));
+    #[test]
+    fn pedersen_commitment_binary_verify_truthy() {
+        let curve = Secp256k1::new();
+        let g = curve.g();
+        let h = curve.hash_onto_curve(b"PROVISIONS");
+
+        let x = &BigInt::from(1);
+        let y = &BigInt::from(12414);
+        let commitment = PedersenCommitment::create_commitment(&g, &h, &curve, x, y);
+        assert!(
+            PedersenCommitment::verify_binary_commitment(&commitment, &curve, x, y),
+            "commitment not able to be verified"
+        );
     }
 }
