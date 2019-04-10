@@ -67,18 +67,12 @@ impl Secp256k1 {
         self.curve.is_valid_point(point.point_ref())
     }
 
-    /// Intended to hash arbitrary content onto the curve using SHA-256. Unfortunately the
-    /// implementation is build to only work with the string "PROVISIONS" for now.
+    /// Intended to hash arbitrary content onto the curve using SHA-256. This works the first time
+    /// for some content but not all so it's not safe to call with arbitrary strings since it
+    /// doesn't retry to find.
     pub fn hash_onto_curve(&self, content: &[u8]) -> Point {
-        assert!(content == b"PROVISIONS", "Only works with fixed string for now");
-        // TODO: Temporarily hack this into place until real hashing works. This _is not_ a secure
-        // way of doing this.
-        // return self.g() * 134;
-
-        // This is completely stolen from the prototype implementation and the calculation seems to
-        // have been specifically chosen to work with the PROVISIONS string but not arbitrary ones.
-        // https://github.com/bbuenz/provisions/blob/b51530db630bc5bddf30bbae0f3d5c99a755649a/src/main/java/edu/stanford/crypto/ECConstants.java#L29-L31
         let x = self.field_elem(sha256_bigint(content));
+        // RHS calculation here stolen from: https://github.com/bbuenz/provisions/blob/b51530db630bc5bddf30bbae0f3d5c99a755649a/src/main/java/edu/stanford/crypto/ECConstants.java#L29-L31
         let rhs = x.pow(&BigInt::from(2)) * (self.a_ref() + x.clone()) + self.b_ref();
         let y = rhs.sqrt();
         let ec_point = self.curve.point(x.value.clone(), y.value);
@@ -90,6 +84,10 @@ impl Secp256k1 {
 }
 
 impl FiniteCurvy for Secp256k1 {
+    fn field_ref(&self) -> &Field {
+        self.curve.field_ref()
+    }
+
     fn a_ref(&self) -> &FieldElement {
         self.curve.a_ref()
     }

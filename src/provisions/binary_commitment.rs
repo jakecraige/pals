@@ -20,101 +20,53 @@ impl PedersenCommitment {
         PedersenCommitment { g: g.clone(), h: h.clone(), l }
     }
 
+    // Interactive protocol for verifying a bimary pedersen commitment (g, h, l = g^x*h^y).
     // In practice the value and blinding_factor will be hidden but this is easier for testing
     //
-    // Interactive protocol for verifying a pedersen commitment (g, h, l = g^x*h^y).
-    //
-    // We want to verify the commitment to the secret which is: l = y^s * h^t
-    // So for this method x=s and y=t.
-    //   s and t are only known to the prover.
-    //
-    // 1) Prover selects u_0, u_1, c_f randomly from Z_q and produces:
-    //     a_0 = h^u_0 * g^(-x*c_f),
-    //     a_1 = h^u_1 * g^((1-x)*c_f)
+    // 1) Prover selects u0, u1, cf randomly from Z_q and produces:
+    //     a0 = h^u0 * g^(-x*cf),
+    //     a1 = h^u1 * g^((1-x)*cf)
     //
     // 2) Verify sends challenge c from Z_q and
     // 3) Prover computes:
-    //     c_1 = x * (c - c_f) + (1 - x) * c_f
-    //     r_0 = u_0 + (c - c_1) * y
-    //     r_1 = u_1 + c_1 * y
-    //     Sends (c_1, r_0, r_1) to verifier
+    //     c1 = x * (c - cf) + (1 - x) * cf
+    //     r0 = u0 + (c - c1) * y
+    //     r1 = u1 + c1 * y
+    //     Sends (c1, r0, r1) to verifier
     // 4) Verifier accepts if:
-    //     h^r_0 = a_0(l)^(c-c_1)
-    //     h^r_1 = a_1(lg^-1)^c_1
+    //     h^r0 = a0(l)^(c-c1)
+    //     h^r1 = a1(lg^-1)^c1
     fn verify_binary_commitment(
-        commitment: &PedersenCommitment,
+        comm: &PedersenCommitment,
         value: &BigInt, blinding_factor: &BigInt, curve: &Secp256k1
     ) -> bool {
         let truthy = value == &BigInt::one();
 
         // Prover selects "random" values and challenge
         let (u0, u1, cf) = (9213, 125, 3);
-        let q = Secp256k1::n();
-        if truthy {
-            // Prover generates a0 and a1
-            let a0_h = commitment.h_ref() * u0;
-            let a0_g = commitment.g_ref().inverse() * cf;
-            let a0 = a0_h + a0_g;
-            let a1 = commitment.h_ref() * u1; // h^u0
+        // a_0 = h^u_0 * g^(-x*c_f),
+        // a_1 = h^u_1 * g^((1-x)*c_f)
+        let a0 = comm.h_ref() * u0 + comm.g_ref() * (-value * cf);
+        let a1 = comm.h_ref() * u1 + comm.g_ref() * ((1 - value) * cf);
 
-            // Verifier challenge
-            // TODO: Oddly broken, given c
-            //  if cf = c / 2, passes
-            //  if cf <= c, last half passes
-            //  if cf > c, nothing passes
-            let c = &cf * 2; // hax
+        let c = 6; // verifier challenge
 
-            // Prover computes r0 and r1
-            let c1 = BigInt::from(c - &cf).mod_floor(&q);
-            let r0 = BigInt::from(u0 + (cf * blinding_factor)).mod_floor(&q);
-            let r1 = BigInt::from(u1 + ((c - cf) * blinding_factor)).mod_floor(&q);
-            println!("c: {}, cf: {}", c, cf);
-            println!("c1: {}, r0: {}, r1: {}", c1, r0, r1);
+        // Prover computes:
+        // c_1 = x * (c - c_f) + (1 - x) * c_f
+        // r_0 = u_0 + (c - c_1) * y
+        // r_1 = u_1 + c_1 * y
+        let c1: BigInt = value * (c - cf) + (1 - value) * cf;
+        let r0 = u0 + (c - &c1) * blinding_factor;
+        let r1 = u1 + &c1 * blinding_factor;
 
-            // Verifier computes
-            let h_r0 = commitment.h_ref() * r0;
-            let h_r1 = commitment.h_ref() * r1;
+        // Verifier verifies:
+        // h^r_0 = a_0(l)^(c-c_1)
+        // h^r_1 = a_1(lg^-1)^c_1
+        let p1 = comm.h_ref() * r0 == a0 + comm.l_ref() * (c - &c1);
+        let p2 = comm.h_ref() * r1 == a1 + (comm.l_ref() + &comm.g_ref().inverse()) * c1.clone();
 
-            let exp = BigInt::from(c - cf).mod_floor(&q); // c1 really
-            let v_r0 = (commitment.l_ref() * exp) + &a0;
-            let v_r1 = a1 + (commitment.l_ref() + &commitment.g_ref().inverse()) * c1;
-
-            let left = h_r0 == v_r0;
-            let right = h_r1 == v_r1;
-
-            println!("print: {}", c - cf);
-            println!("lhs: {}", h_r0);
-            println!("rhs: {}", v_r0);
-            println!("truthy: p1: {}, p2: {}", left, right);
-
-            left && right
-        } else {
-            // Prover generates a0 and a1
-            let a0 =   commitment.h_ref() * u0; // h^u0
-            let a1_h = commitment.h_ref() * u1;
-            let a1_g = commitment.g_ref() * cf;
-            let a1 = a1_h + &a1_g; // h^u1 * h^cf
-
-            // Verifier challenge
-            let c = &cf * 2; //hax
-
-            // Prover computes r0 and r1
-            let c1 = cf.clone();
-            let r0 = u0 + (c - cf) * blinding_factor;
-            let r1 = u1 + cf * blinding_factor;
-
-            // Verifier computes
-            let h_r0 = commitment.h_ref() * r0;
-            let h_r1 = commitment.h_ref() * r1;
-
-            let v_r0 = (commitment.l_ref() * (c - cf)) + &a0;
-            let v_r1 = a1 + (commitment.l_ref() + &commitment.g_ref().inverse()) * c1;
-
-            let left = h_r0 == v_r0;
-            let right = h_r1 == v_r1;
-
-            left && right
-        }
+        println!("p1: {}, p2: {}", p1, p2);
+        p1 && p2
     }
 
     fn g_ref(&self) -> &Point { &self.g }

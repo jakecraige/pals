@@ -1,6 +1,7 @@
 use std::fmt;
 use std::rc::{Rc};
 use num_bigint::{BigInt, Sign};
+use num_integer::{Integer};
 use num_traits::*;
 use finite_field::{Field, FieldElement};
 use util::{bigint_to_bytes32_be};
@@ -58,13 +59,11 @@ impl Point {
     //
     // https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
     pub fn mul<T: Into<BigInt> + Clone>(&self, n: &T, curve: &FiniteCurvy) -> Point {
-        let mut coeff = n.clone().into();
+        // mod allows us to handle negative numbers by:
+        //   g^(x) = g^(x+q), so.. g^(-x+q) = g^(q-x) which is the same as: x % q
+        let mut coeff = n.clone().into().mod_floor(curve.field_ref().p_ref());
         let mut current = self.clone();
         let mut result = Point::Infinity;
-
-        if coeff < BigInt::zero() {
-            panic!("Unexpected multiply by negative number");
-        }
 
         while coeff > BigInt::zero() {
             if !(&coeff & BigInt::one()).is_zero() {
@@ -73,6 +72,7 @@ impl Point {
             current = current.add(&current, curve); // double
             coeff >>= 1;
         }
+
         result
     }
 
@@ -160,11 +160,16 @@ pub struct FiniteCurve {
 }
 
 pub trait FiniteCurvy {
+    fn field_ref(&self) -> &Field;
     fn a_ref(&self) -> &FieldElement;
     fn b_ref(&self) -> &FieldElement;
 }
 
 impl FiniteCurvy for FiniteCurve {
+    fn field_ref(&self) -> &Field {
+        &self.field
+    }
+
     fn a_ref(&self) -> &FieldElement {
         &self.a
     }
