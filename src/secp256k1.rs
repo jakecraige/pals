@@ -3,7 +3,7 @@ use std::rc::{Rc};
 use std::ops::{Add, Sub, Mul};
 use num_bigint::{BigInt};
 use finite_field::{Field, FieldElement};
-use elliptic_curve::{FiniteCurve, FiniteCurvy, Point as ECPoint, CurveOperation, Sec};
+use elliptic_curve::{FiniteCurve, FiniteCurvy, Point as ECPoint, Sec};
 use util::{sha256_bigint};
 
 #[derive(Debug, Clone)]
@@ -38,31 +38,29 @@ impl Secp256k1 {
         Secp256k1 { curve, g, subgroup_field: Field::new(Secp256k1::n()) }
     }
 
-    // Produce the public key from a provided private key. Helper method to provide more semantic
-    // API to caller.
+    /// Produce the public key from a provided private key. Helper method to provide more semantic
+    /// API to caller.
     pub fn pubkey(&self, private_key: &BigInt) -> Point {
-        let point = self.curve.mul(&self.g, private_key);
+        let point = self.g.mul(private_key, &self.curve);
         Point::new(point, self.clone())
     }
 
-    // Create field element within the field on the order of curve
+    /// Create field element within the curve within F_p
     pub fn field_elem<T: Into<BigInt>>(&self, n: T) -> FieldElement {
         self.curve.field_elem(n)
     }
 
-    // Create field element within the field on the order of the subgroup
+    /// Create field element within the field on the order of the subgroup
     pub fn subgroup_field_elem(&self, n: BigInt) -> FieldElement {
         self.subgroup_field.elem(n)
     }
 
-    pub fn with(&self, p: &ECPoint) -> CurveOperation {
-        self.curve.with(p)
-    }
-
+    /// Return the base generator point for the curve
     pub fn g(&self) -> Point {
         Point::new(self.g.clone(), self.clone())
     }
 
+    /// Determine if a point is on the curve or not
     pub fn is_valid_point(&self, point: &Point) -> bool {
         self.curve.is_valid_point(point.point_ref())
     }
@@ -77,7 +75,6 @@ impl Secp256k1 {
         let y = rhs.sqrt();
         let ec_point = self.curve.point(x.value.clone(), y.value);
         let point = Point::new(ec_point, self.clone());
-        assert!(self.is_valid_point(&point), "point is not on curve");
 
         point
     }
@@ -105,7 +102,16 @@ pub struct Point {
 
 impl Point {
     fn new(point: ECPoint, curve: Secp256k1) -> Point {
-        Point { point, curve: Rc::new(curve) }
+        let point = Point { point, curve: Rc::new(curve.clone()) };
+        assert!(curve.is_valid_point(&point), "point not on curve");
+        point
+    }
+
+    /// Helper method to create a new point cloning the existing curve over
+    pub fn new_from_ec_point(&self, point: ECPoint) -> Point {
+        let next_point = Point { point, curve: self.curve.clone() };
+        assert!(self.curve.is_valid_point(&next_point), "point not on curve");
+        next_point
     }
 
     /// Return a new instance of the point at infinity
@@ -120,11 +126,6 @@ impl Point {
 
     pub fn inverse(&self) -> Point {
         self.new_from_ec_point(self.point.inverse())
-    }
-
-    /// Helper method to create a new point cloning the existing curve over
-    pub fn new_from_ec_point(&self, point: ECPoint) -> Point {
-        Point { point, curve: self.curve.clone() }
     }
 
     /// Return the coordinates of the point iff it is not the point at infinity.

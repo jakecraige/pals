@@ -1,5 +1,4 @@
 use std::fmt;
-use std::rc::{Rc};
 use num_bigint::{BigInt, Sign};
 use num_integer::{Integer};
 use num_traits::*;
@@ -17,6 +16,7 @@ impl Point {
         Point::Coordinate { x, y }
     }
 
+    /// Return the additive inverse of the point. -P where P + -P = 0
     pub fn inverse(&self) -> Point {
         match self.clone() {
             Point::Infinity => Point::Infinity,
@@ -55,9 +55,9 @@ impl Point {
         }
     }
 
-    // Multiplication implemented using the double-and-add algorithm.
-    //
-    // https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
+    /// Multiplication implemented using the double-and-add algorithm.
+    ///
+    /// https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
     pub fn mul<T: Into<BigInt> + Clone>(&self, n: &T, curve: &FiniteCurvy) -> Point {
         // mod allows us to handle negative numbers by:
         //   g^(x) = g^(x+q), so.. g^(-x+q) = g^(q-x) which is the same as: x % q
@@ -159,106 +159,34 @@ pub struct FiniteCurve {
     field: Field
 }
 
-pub trait FiniteCurvy {
-    fn field_ref(&self) -> &Field;
-    fn a_ref(&self) -> &FieldElement;
-    fn b_ref(&self) -> &FieldElement;
-}
-
-impl FiniteCurvy for FiniteCurve {
-    fn field_ref(&self) -> &Field {
-        &self.field
-    }
-
-    fn a_ref(&self) -> &FieldElement {
-        &self.a
-    }
-
-    fn b_ref(&self) -> &FieldElement {
-        &self.b
-    }
-}
-
 impl FiniteCurve {
+    /// Create a curve over the finite field F_p with coefficients a and b.
     pub fn new<T: Into<BigInt>>(a: T, b: T, p: T) -> Self {
         let field = Field::new(p);
         FiniteCurve { a: field.elem(a), b: field.elem(b), field }
     }
 
+    /// Create element within field F_p
     pub fn field_elem<T: Into<BigInt>>(&self, n: T) -> FieldElement {
         self.field.elem(n)
     }
 
+    /// Create point on curve within F_p
     pub fn point<T: Into<BigInt>, P: Into<BigInt>>(&self, x: T, y: P) -> Point {
         let (x, y) = (self.field_elem(x.into()), self.field_elem(y.into()));
-        // TODO: Verify point on curve
-        Point::coord(x, y)
+        let point = Point::coord(x, y);
+        assert!(self.is_valid_point(&point), "new point is not on curve");
+        point
     }
 
-    // P + -P = 0
-    // P + 0 = P = 0 + P
-    // P + Q = -R
-    pub fn add(&self, p: &Point, q: &Point) -> Point {
-        if p == &q.inverse() {
-            return Point::Infinity;
-        }
-
-        match (p, q) {
-            (Point::Infinity, _) => q.clone(),
-            (_, Point::Infinity) => p.clone(),
-
-            (Point::Coordinate {x: x_p, y: y_p}, Point::Coordinate {x: x_q, y: y_q}) => {
-                // We now have two non-zero, non-symmetric points to work with
-                let m = if x_p == x_q && y_p == y_p {
-                    let x_p2 = x_p * x_p;
-                    // Slope calculation is different when points are equal
-                    (x_p2 * BigInt::from(3) + &self.a) / (y_p * BigInt::from(2))
-                } else {
-                    (y_p - y_q) / (x_p - x_q)
-                };
-
-                // Intersection of points
-                let m2 = &m * &m;
-                let x_r = m2 - x_p - x_q;
-                let y_r = y_q + (m * (&x_r - x_q));
-
-                // (x_p, y_p) + (x_q, y_q) = (x_r, -y_r)
-                Point::Coordinate { x: x_r, y: -y_r }
-            }
-        }
-    }
-
-    pub fn mul(&self, p: &Point, n: &BigInt) -> Point {
-        let mut coeff = n.clone();
-        let mut current = p.clone();
-        let mut result = Point::Infinity;
-
-        if n < &BigInt::zero() {
-            panic!("Unexpected multiply by negative number");
-        }
-
-        while coeff > BigInt::zero() {
-            if !(&coeff % BigInt::from(2)).is_zero() {
-                result = self.add(&current, &result);
-            }
-            current = self.add(&current, &current);
-            coeff >>= 1;
-        }
-        result
-    }
-
-    pub fn with(&self, point: &Point) -> CurveOperation {
-        CurveOperation::new(point.clone(), self.clone())
-    }
-
+    /// Determine the y value for a given x coordinate and itendify if you want it to be even or
+    /// not. This is used for SEC parsing.
     fn solve_y(&self, x: &BigInt, is_even: bool) -> FieldElement {
         // rhs of y^2 = x^3 + ax + 7
         let x_3 = self.field_elem(x.pow(3 as u8));
         let rhs = x_3 + &self.a*x + &self.b;
         let y = rhs.sqrt();
 
-        // TODO: Understand these conditionals better since it seems like we never use the case
-        // that is calculated?
         let (even_beta, odd_beta) = if y.is_even() {
             (y.clone(), self.field_elem(self.field.p_ref() - &y.value))
         } else {
@@ -276,7 +204,7 @@ impl FiniteCurve {
     /// equation
     pub fn is_valid_point(&self, point: &Point) -> bool {
         match &point {
-            Point::Infinity => false,
+            Point::Infinity => true, // TODO: This okay?
             Point::Coordinate { x, y } => {
                 let lhs = y.pow(&BigInt::from(2));
                 let rhs = x.pow(&BigInt::from(3)) + self.a_ref() * x + self.b_ref();
@@ -286,37 +214,23 @@ impl FiniteCurve {
     }
 }
 
-#[derive(Debug)]
-pub struct CurveOperation {
-    pub value: Point,
-    curve: Rc<FiniteCurve>
+pub trait FiniteCurvy {
+    fn field_ref(&self) -> &Field;
+    fn a_ref(&self) -> &FieldElement;
+    fn b_ref(&self) -> &FieldElement;
 }
 
-impl CurveOperation {
-    fn new(value: Point, curve: FiniteCurve) -> Self {
-        CurveOperation { value, curve: Rc::new(curve)  }
+impl FiniteCurvy for FiniteCurve {
+    fn field_ref(&self) -> &Field {
+        &self.field
     }
 
-    pub fn add(&self, q: &Point) -> CurveOperation {
-        let new_point = self.value.add(q, self.curve.as_ref());
-        CurveOperation { value: new_point, curve: self.curve.clone() }
+    fn a_ref(&self) -> &FieldElement {
+        &self.a
     }
 
-    pub fn mul<T: Into<BigInt> + Clone>(&self, n: &T) -> CurveOperation {
-        let new_point = self.value.mul(n, self.curve.as_ref());
-        CurveOperation { value: new_point, curve: self.curve.clone() }
-    }
-}
-
-impl fmt::Display for CurveOperation {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.value.fmt(f)
-    }
-}
-
-impl PartialEq<Point> for CurveOperation {
-    fn eq(&self, rhs: &Point) -> bool {
-        &self.value == rhs
+    fn b_ref(&self) -> &FieldElement {
+        &self.b
     }
 }
 
@@ -343,14 +257,6 @@ mod tests {
         let exp = c.point(80, 10);
         println!("res: {}, exp: {}, add: {}", res, exp, c.point(3, 6).add(&c.point(3, 6), c));
         assert_eq!(res, exp);
-    }
-
-    #[test]
-    fn elliptic_curve_point_ops() {
-        let c = &FiniteCurve::new(-7, 10, 999999);
-
-        let out = c.with(&c.point(1, 2)).add(&c.point(1, -2));
-        assert_eq!(out, Point::Infinity); // add to inverse
     }
 
     #[test]
