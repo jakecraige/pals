@@ -10,6 +10,7 @@ extern crate num_iter;
 extern crate num_integer;
 extern crate sha2;
 extern crate ripemd160;
+extern crate secp256k1 as cSecp256k1;
 
 mod set1;
 mod set2;

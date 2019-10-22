@@ -1,10 +1,11 @@
-use std::iter;
 use num_bigint::{BigInt, Sign};
+use num_integer::Integer;
 use num_traits::*;
-use num_integer::{Integer};
-use util::{hash256};
+use std::iter;
+use util::hash256;
 
-static BASE58_ALPHABET : &'static [u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+static BASE58_ALPHABET: &'static [u8] =
+    b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 fn base58_encode(bytes: &[u8]) -> Vec<u8> {
     let mut zero_bytes_num = 0;
@@ -15,7 +16,6 @@ fn base58_encode(bytes: &[u8]) -> Vec<u8> {
             break;
         }
     }
-
 
     let mut num = BigInt::from_bytes_be(Sign::Plus, bytes);
     let fifty_eight = BigInt::from(58);
@@ -46,23 +46,36 @@ pub fn base58check_encode(bytes: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use base58::*;
-    use set1::{hex_decode};
+    use rand::OsRng;
+    use set1::hex_decode;
+    // use cSecp256k1::{Secp256k1, Message};
+
+    // #[test]
+    // fn compare_test() {
+    // let secp = Secp256k1::new();
+    // let mut rng =  OsRng::new().expect("OsRng");
+    // let (secret_key, public_key)  = secp.generate_keypair(&mut rng);
+    // let message = Message::from_slice(&[0xab; 32]).expect("32 bytes");
+
+    // let sig = secp.sign(&message, &secret_key);
+    // assert!(secp.verify(&message, &sig, &public_key).is_ok())
+    // }
 
     #[test]
     fn base58_encoding() {
         let test_vectors: Vec<(&str, &[u8])> = vec![
             (
                 "7c076ff316692a3d7eb3c3bb0f8b1488cf72e1afcd929e29307032997a838a3d",
-                b"9MA8fRQrT4u8Zj8ZRd6MAiiyaxb2Y1CMpvVkHQu5hVM6"
+                b"9MA8fRQrT4u8Zj8ZRd6MAiiyaxb2Y1CMpvVkHQu5hVM6",
             ),
             (
                 "eff69ef2b1bd93a66ed5219add4fb51e11a840f404876325a1e8ffe0529a2c",
-                b"4fE3H2E6XMp4SsxtwinF7w9a34ooUrwWe4WsW1458Pd"
+                b"4fE3H2E6XMp4SsxtwinF7w9a34ooUrwWe4WsW1458Pd",
             ),
             (
                 "c7207fee197d27c618aea621406f6bf5ef6fca38681d82b2f06fddbdce6feab6",
-                b"EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7"
-            )
+                b"EQJsjkd6JaGwxrjEhfeqPenqHwrBmPQZjJGNSCHBkcF7",
+            ),
         ];
 
         for (hex_input, expected_bytes) in &test_vectors[0..] {

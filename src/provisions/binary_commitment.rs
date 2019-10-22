@@ -1,4 +1,5 @@
 use num_bigint::{BigInt};
+use num_integer::Integer;
 use num_traits::*;
 use secp256k1::{Secp256k1, Point};
 
@@ -39,32 +40,32 @@ impl PedersenCommitment {
         comm: &PedersenCommitment, curve: &Secp256k1,
         x: &BigInt, y: &BigInt,
     ) -> bool {
-        let truthy = x == &BigInt::one();
-
         // NOTE: These operations are not currently done within the field and per the paper they
         // should be. With the fixed values right now they never get large enough that the mod
         // would change anything though.
+        let q = Secp256k1::n();
 
         // Prover selects "random" values and challenge
-        let (u0, u1, cf) = (9213, 125, 3);
+        let (u0, u1, cf) = (BigInt::from(1), BigInt::from(2), BigInt::from(3));
         // a_0 = h^u_0 * g^(-x*c_f),
         // a_1 = h^u_1 * g^((1-x)*c_f)
-        let a0 = comm.h_ref() * u0 + comm.g_ref() * (-x * cf);
-        let a1 = comm.h_ref() * u1 + comm.g_ref() * ((1 - x) * cf);
+        let a0 = comm.h_ref() * u0.clone() + comm.g_ref() * (-x * &cf).mod_floor(&q);
+        // let tmp: BigInt
+        let a1 = comm.h_ref() * u1.clone() + comm.g_ref() * ((BigInt::one() - x) * &cf).mod_floor(&q);
 
-        let c = 6; // verifier challenge
+        let c = BigInt::from(4); // verifier challenge
 
         // Prover computes:
-        // c_1 = x * (c - c_f) + (1 - x) * c_f
-        // r_0 = u_0 + (c - c_1) * y
-        // r_1 = u_1 + c_1 * y
-        let c1: BigInt = x * (c - cf) + (1 - x) * cf;
-        let r0 = u0 + (c - &c1) * y;
-        let r1 = u1 + &c1 * y;
+        // c1 = x * (c - cf) + (1 - x) * cf
+        // r0 = u0 + (c - c1) * y
+        // r1 = u1 + c1 * y
+        let c1: BigInt = (x * (&c - &cf) + (BigInt::one() - x) * &cf).mod_floor(&q);
+        let r0 = (u0 + (&c - &c1) * y).mod_floor(&q);
+        let r1 = (u1 + &c1 * y).mod_floor(&q);
 
         // Verifier verifies:
-        // h^r_0 = a_0(l)^(c-c_1)
-        // h^r_1 = a_1(lg^-1)^c_1
+        // h^r0 = a0(l)^(c-c1)
+        // h^r1 = a1(lg^-1)^c1
         let p1 = comm.h_ref() * r0 == a0 + (comm.l_ref() * (c - &c1));
         let p2 = comm.h_ref() * r1 == a1 + (comm.l_ref() + &comm.g_ref().inverse()) * c1.clone();
 
@@ -104,7 +105,7 @@ mod tests {
         let h = curve.hash_onto_curve(b"PROVISIONS");
 
         let x = &BigInt::from(1);
-        let y = &BigInt::from(12414);
+        let y = &BigInt::from(123);
         let commitment = PedersenCommitment::create_commitment(&g, &h, &curve, x, y);
         assert!(
             PedersenCommitment::verify_binary_commitment(&commitment, &curve, x, y),

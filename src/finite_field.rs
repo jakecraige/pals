@@ -124,7 +124,7 @@ impl FieldElement {
 
 impl fmt::Display for FieldElement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.value)
+        write!(f, "{}", self.value.to_str_radix(16))
     }
 }
 

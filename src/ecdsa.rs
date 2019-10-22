@@ -1,13 +1,13 @@
-use num_bigint::{BigInt};
-use finite_field::{FieldElement};
-use secp256k1::{Secp256k1, Point};
-use util::{hash256_bigint, bigint_to_bytes32_be};
+use finite_field::FieldElement;
+use num_bigint::BigInt;
+use secp256k1::{Point, Secp256k1};
+use util::{bigint_to_bytes32_be, hash256_bigint};
 
 #[derive(Debug)]
 struct Sig {
     z: FieldElement, // content hash
     r: FieldElement, // rand
-    s: FieldElement  // sig
+    s: FieldElement, // sig
 }
 
 impl Sig {
@@ -34,9 +34,9 @@ fn der_encode_value(v: &BigInt) -> Vec<u8> {
         bytes.insert(0, 0);
     }
 
-    let mut res = vec![0x2u8];   // marker
+    let mut res = vec![0x2u8]; // marker
     res.push(bytes.len() as u8); // len of value
-    res.append(&mut bytes);      // value
+    res.append(&mut bytes); // value
 
     res
 }
@@ -47,7 +47,7 @@ impl Der for Sig {
         let mut r_der = der_encode_value(&self.r.value);
         let mut s_der = der_encode_value(&self.s.value);
 
-        let mut res = vec![0x30u8];  // marker
+        let mut res = vec![0x30u8]; // marker
         res.push((r_der.len() + s_der.len()) as u8);
         res.append(&mut r_der);
         res.append(&mut s_der);
@@ -56,12 +56,14 @@ impl Der for Sig {
 }
 
 struct Signer {
-    curve: Secp256k1
+    curve: Secp256k1,
 }
 
 impl Signer {
     fn new() -> Self {
-        Signer { curve: Secp256k1::new() }
+        Signer {
+            curve: Secp256k1::new(),
+        }
     }
 
     fn sign_message(&self, message: &[u8], k: &BigInt, privkey: &BigInt) -> Sig {
@@ -78,9 +80,15 @@ impl Signer {
 
         // TODO: low-s value preferred by Bitcoin. Reduce S further if > subgroup order/2
         let s = k.inverse() * (z + (r * privkey));
-        if s == 0 { panic!("s was 0. Choose another k.") }
+        if s == 0 {
+            panic!("s was 0. Choose another k.")
+        }
 
-        Sig { z: z.clone(), r: r.clone(), s: s.clone() }
+        Sig {
+            z: z.clone(),
+            r: r.clone(),
+            s: s.clone(),
+        }
     }
 
     fn verify(&self, sig: &Sig, pubkey: &Point) -> bool {
@@ -96,7 +104,9 @@ impl Signer {
     fn compute_r(&self, p: &Point) -> FieldElement {
         let (xp, _) = p.as_coord().expect("non-infinite point");
         let r = self.elem(&xp.value);
-        if r == 0 { panic!("r was 0. Choose another k.") }
+        if r == 0 {
+            panic!("r was 0. Choose another k.")
+        }
 
         r
     }
@@ -108,8 +118,8 @@ impl Signer {
 
 #[cfg(test)]
 mod tests {
-    use num_traits::{Num};
     use ecdsa::*;
+    use num_traits::Num;
 
     #[test]
     fn ecdsa_sign_and_verify() {
@@ -137,8 +147,14 @@ mod tests {
 
         let r_hex = sig.r.value.to_str_radix(16);
         let s_hex = sig.s.value.to_str_radix(16);
-        assert_eq!(r_hex, "2b698a0f0a4041b77e63488ad48c23e8e8838dd1fb7520408b121697b782ef22");
-        assert_eq!(s_hex, "1dbc63bfef4416705e602a7b564161167076d8b20990a0f26f316cff2cb0bc1a");
+        assert_eq!(
+            r_hex,
+            "2b698a0f0a4041b77e63488ad48c23e8e8838dd1fb7520408b121697b782ef22"
+        );
+        assert_eq!(
+            s_hex,
+            "1dbc63bfef4416705e602a7b564161167076d8b20990a0f26f316cff2cb0bc1a"
+        );
         assert!(signer.verify(&sig, &pubk));
     }
 
@@ -154,7 +170,11 @@ mod tests {
 
         let curve = Secp256k1::new();
         for (r, s, sig_bytes) in values {
-            let sig = Sig::new(curve.field_elem(r), curve.field_elem(s), curve.field_elem(1));
+            let sig = Sig::new(
+                curve.field_elem(r),
+                curve.field_elem(s),
+                curve.field_elem(1),
+            );
             assert_eq!(sig.as_der(), &sig_bytes[..]);
         }
     }
