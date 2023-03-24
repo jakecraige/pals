@@ -5,7 +5,7 @@ authors = ["Jake Craige <jake@example.com>"]
 
 [dependencies]
 base64 = "0.9.3"
-openssl = "0.10.12"  
+openssl = "0.10.48"  
 rand = "  0.5"
 num-bigint = { version = "0.2", features = ["rand"] }
 num-traits = "0.2"
